@@ -44,6 +44,7 @@
     <Feature Id="MainFeature" Title="logitech-sim-led" Level="1">
       <ComponentRef Id="ServiceExeComponent" />
       <ComponentRef Id="CliExeComponent" />
+      <ComponentRef Id="WebView2LoaderComponent" />
       <ComponentRef Id="LicenseComponent" />
       <ComponentRef Id="ReadmeComponent" />
       <ComponentRef Id="ConfigComponent" />
@@ -56,6 +57,19 @@
 
     <Component Id="CliExeComponent" Directory="INSTALLFOLDER" Guid="*">
       <File Id="SldCliExe" Source="$(var.SourceDir)\sld-cli.exe" KeyPath="yes" />
+    </Component>
+
+    <!--
+      wry's WebView2 backend needs this next to the exe at runtime; it's
+      not the WebView2 Runtime itself (that's a separate, normally-already
+      present system install, Windows ships it with Edge), just a small
+      loader DLL `webview2-com-sys` copies into its own Cargo OUT_DIR at
+      build time rather than next to the final binary. $(var.SourceDir)
+      here is target/release, not that OUT_DIR; see build.rs, which is
+      what actually gets it there before this file is built.
+    -->
+    <Component Id="WebView2LoaderComponent" Directory="INSTALLFOLDER" Guid="*">
+      <File Id="WebView2LoaderDll" Source="$(var.SourceDir)\WebView2Loader.dll" KeyPath="yes" />
     </Component>
 
     <Component Id="LicenseComponent" Directory="INSTALLFOLDER" Guid="*">
@@ -90,21 +104,22 @@
     </Component>
 
     <!--
-      TODO(installer wizard): `UIRef Id="WixUI_InstallDir"` (from
-      WixToolset.UI.wixext 5.0.2, loaded with `-ext WixToolset.UI.wixext`)
-      resolves but fails with WIX0094 "inaccessible due to its protection
-      level", which looks like a packaging quirk specific to this
-      extension version rather than a syntax error (UIRef/Property/
-      WixVariable structure was confirmed correct against the extension
-      DLL's own WIXUI_INSTALLDIR property name). Revisit once the
-      packaging rewrite for the GUI app (see main.rs/gui.rs) replaces
-      this file anyway: new exe, new icon, new shortcuts, worth
-      re-deriving the UI wiring fresh rather than patching this cut
-      further. Until then this MSI installs non-interactively only
-      (msiexec /qn or /qb): no Welcome/License/browse-for-folder/Finish
-      wizard, no /qf default UI.
-      license.rtf in this directory is ready for whenever this is fixed.
+      Install wizard (Welcome/License/browse-for-folder/Finish). Not
+      referenced via `-ext WixToolset.UI.wixext`: `UIRef
+      Id="WixUI_InstallDir"` against that extension fails with WIX0094
+      "inaccessible due to its protection level" on WiX v5.0.2, a
+      confirmed upstream bug (wixtoolset/issues#7370, same error against
+      WixUI_Mondo, closed "not planned"; the reporter's own workaround was
+      exactly this: inline the dialog set's actual source instead of
+      referencing the compiled extension library). packaging/windows/ui/
+      is a trimmed vendored copy of wixtoolset/wix's own
+      src/ext/UI/wixlib/*.wxs (MS-RL licensed; see
+      packaging/windows/ui/LICENSE-NOTE.md, which also covers exactly
+      what was trimmed and why).
     -->
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <UIRef Id="WixUI_InstallDir_X64" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.RepoRoot)\packaging\windows\license.rtf" />
 
   </Package>
 </Wix>

@@ -166,11 +166,6 @@ docs/adding-an-output.md for the shape it would take when it's needed.
 - Linux (`.desktop` autostart file) and macOS (`LaunchAgent` plist)
   equivalents of the Windows "Start with Windows" toggle -- see
   autostart.rs.
-- Fix the Windows MSI's installer wizard (`UIRef Id="WixUI_InstallDir"`
-  currently fails with WIX0094 against WixToolset.UI.wixext 5.0.2 -- see
-  the TODO comment in packaging/windows/product.wxs) so it shows the
-  normal Welcome/License/install-location/Finish dialogs instead of only
-  supporting non-interactive install.
 - Add a config section + editor in the web UI instead of hand-editing TOML.
 - A second real game source (proves the modularity claim beyond one
   example) -- iRacing and ACC both expose shared-memory telemetry, which is

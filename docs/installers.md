@@ -30,9 +30,23 @@ The first one that exists wins; see `candidate_config_paths` in
 Built with [WiX v5](https://wixtoolset.org/) from
 `packaging/windows/product.wxs`.
 
-- **Installs to**: `C:\Program Files\logitech-sim-led\` (`sld-service.exe`,
-  `sld-cli.exe`, `README.md`, `LICENSE`, `config\default.toml`).
-- **Start Menu**: a "logitech-sim-led" shortcut that runs `sld-service.exe`.
+- **Installs to**: `C:\Program Files\logitech-sim-led\` by default, with a
+  wizard (Welcome/License/browse-for-folder/Finish -- see
+  `packaging/windows/ui/`) to change that (`sld-service.exe`,
+  `sld-cli.exe`, `WebView2Loader.dll`, `README.md`, `LICENSE`,
+  `config\default.toml`).
+- **Requires**: the Microsoft Edge WebView2 Runtime, which Windows 10/11
+  ship with Edge -- if it's somehow missing, `sld-service.exe`'s window
+  won't open (Microsoft's [evergreen
+  installer](https://developer.microsoft.com/microsoft-edge/webview2/)
+  fixes that).
+- **Start Menu**: a "logitech-sim-led" shortcut that runs `sld-service.exe`
+  (opens a window with a tray icon, not a console -- see
+  docs/architecture.md). This is a per-machine install, so the shortcut
+  lands under the *all-users* Start Menu
+  (`C:\ProgramData\Microsoft\Windows\Start Menu\Programs\`), not
+  `%APPDATA%\...\Start Menu\Programs\` -- worth knowing if you're looking
+  for it by hand instead of through the Start menu search.
 - **Uninstall**: native -- Settings > Apps > "logitech-sim-led" > Uninstall
   (or Control Panel > Programs and Features). This is the actual point of
   using an MSI: Windows tracks everything it installed and removes it

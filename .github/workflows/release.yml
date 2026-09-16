@@ -113,11 +113,21 @@ jobs:
         run: |
           $version = "${{ github.ref_name }}".TrimStart('v')
           $out = "logitech-sim-led-${{ github.ref_name }}-x86_64-pc-windows-msvc.msi"
-          wix build packaging/windows/product.wxs `
+          $uiFiles = Get-ChildItem "packaging\windows\ui\*.wxs" | ForEach-Object { $_.FullName }
+          $sources = @("packaging\windows\product.wxs") + $uiFiles
+          wix build $sources `
             -arch x64 `
             -d Version=$version `
             -d SourceDir=target/release `
             -d RepoRoot=. `
+            -d bannerBmp=packaging\windows\ui\Bitmaps\bannrbmp.bmp `
+            -d dialogBmp=packaging\windows\ui\Bitmaps\dlgbmp.bmp `
+            -d exclamationIco=packaging\windows\ui\Bitmaps\exclamic.ico `
+            -d infoIco=packaging\windows\ui\Bitmaps\info.ico `
+            -d newIco=packaging\windows\ui\Bitmaps\New.ico `
+            -d upIco=packaging\windows\ui\Bitmaps\Up.ico `
+            -d licenseRtf=packaging\windows\license.rtf `
+            -loc packaging\windows\ui\WixUI_en-us.wxl `
             -o $out
           echo "MSI_PATH=$out" | Out-File -FilePath $env:GITHUB_ENV -Append
       - uses: actions/upload-artifact@v4

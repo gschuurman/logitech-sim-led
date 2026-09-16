@@ -74,11 +74,28 @@ pub fn run() -> anyhow::Result<()> {
     // here.
     std::thread::sleep(Duration::from_millis(200));
 
+    // WebView2's default data directory is next to the exe -- fine in a
+    // dev build (target/debug or target/release), but a real install puts
+    // the exe in Program Files, which a standard user token can't write
+    // to. Without this, webview creation fails there specifically (silent
+    // process exit, no window, exit code 1 -- confirmed the hard way: the
+    // identical binary worked from target/release but not once installed
+    // via the MSI to Program Files). `%LOCALAPPDATA%` is always writable
+    // by the current user.
+    let webview_data_dir = dirs::data_local_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("logitech-sim-led")
+        .join("webview2");
+    // Never read again after this, but must outlive the `WebViewBuilder`
+    // it's borrowed by below (same "lives in this stack frame for the
+    // process's effective lifetime" reasoning as `_webview`).
+    let mut web_context = wry::WebContext::new(Some(webview_data_dir));
+
     // Never read again after this, but must stay alive for the app's
     // lifetime (dropping a `WebView` tears it down): it lives in this
     // stack frame for as long as `event_loop.run` below is executing,
     // which is effectively forever (see its diverging return type).
-    let _webview = wry::WebViewBuilder::new()
+    let _webview = wry::WebViewBuilder::with_web_context(&mut web_context)
         .with_url(format!("http://{WEB_BIND_ADDR}"))
         .build(&window)?;
 
