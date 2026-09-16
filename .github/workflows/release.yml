@@ -84,8 +84,140 @@ jobs:
           path: ${{ env.ASSET_PATH }}
           if-no-files-found: error
 
+  # Native installers, one job per OS since each uses that OS's own
+  # packaging tool. These build their own binaries independently of the
+  # `build` job above (simpler than juggling cross-job artifact paths, and
+  # this workflow only runs on a tag push, so the extra build time is
+  # cheap). See packaging/<os>/ and docs/installers.md for what each one
+  # actually does and how to uninstall.
+  package-windows-msi:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msi-x86_64-pc-windows-msvc
+      - name: Build release binaries
+        run: cargo build --release --workspace -p sld-service -p sld-cli
+      - name: Install WiX
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          echo "$env:USERPROFILE\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: Build MSI
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          $out = "logitech-sim-led-${{ github.ref_name }}-x86_64-pc-windows-msvc.msi"
+          wix build packaging/windows/product.wxs `
+            -arch x64 `
+            -d Version=$version `
+            -d SourceDir=target/release `
+            -d RepoRoot=. `
+            -o $out
+          echo "MSI_PATH=$out" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - uses: actions/upload-artifact@v4
+        with:
+          name: logitech-sim-led-installer-windows
+          path: ${{ env.MSI_PATH }}
+          if-no-files-found: error
+
+  package-macos-pkg:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: pkg-${{ matrix.target }}
+      - name: Build release binaries
+        run: cargo build --release --workspace -p sld-service -p sld-cli --target ${{ matrix.target }}
+      - name: Assemble package root
+        run: |
+          set -euo pipefail
+          root="pkgroot"
+          mkdir -p "$root/usr/local/bin" "$root/usr/local/etc/logitech-sim-led" "$root/usr/local/share/logitech-sim-led"
+          cp "target/${{ matrix.target }}/release/sld-service" "$root/usr/local/bin/"
+          cp "target/${{ matrix.target }}/release/sld-cli" "$root/usr/local/bin/"
+          chmod +x "$root/usr/local/bin/sld-service" "$root/usr/local/bin/sld-cli"
+          cp config/default.toml "$root/usr/local/etc/logitech-sim-led/"
+          cp packaging/macos/scripts/uninstall.sh "$root/usr/local/share/logitech-sim-led/uninstall.sh"
+          chmod +x "$root/usr/local/share/logitech-sim-led/uninstall.sh"
+      - name: Build pkg
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          out="logitech-sim-led-${GITHUB_REF_NAME}-${{ matrix.target }}.pkg"
+          pkgbuild --root pkgroot \
+            --identifier com.gschuurman.logitech-sim-led \
+            --version "$version" \
+            --install-location / \
+            "$out"
+          echo "PKG_PATH=$out" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: logitech-sim-led-installer-macos-${{ matrix.target }}
+          path: ${{ env.PKG_PATH }}
+          if-no-files-found: error
+
+  package-linux-deb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: deb-x86_64-unknown-linux-gnu
+      - name: Build release binaries
+        run: cargo build --release --workspace -p sld-service -p sld-cli
+      - name: Assemble package root
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          root="debroot"
+          mkdir -p "$root/DEBIAN" "$root/usr/bin" "$root/etc/logitech-sim-led" "$root/usr/share/doc/logitech-sim-led"
+          cp target/release/sld-service target/release/sld-cli "$root/usr/bin/"
+          chmod 755 "$root/usr/bin/sld-service" "$root/usr/bin/sld-cli"
+          cp config/default.toml "$root/etc/logitech-sim-led/"
+          cp README.md LICENSE "$root/usr/share/doc/logitech-sim-led/"
+          # Checkout permissions on doc/config files aren't meaningful;
+          # dpkg-deb packages whatever's on disk, so pin them explicitly.
+          chmod 644 "$root/etc/logitech-sim-led/default.toml" \
+            "$root/usr/share/doc/logitech-sim-led/README.md" \
+            "$root/usr/share/doc/logitech-sim-led/LICENSE"
+          sed "s/@VERSION@/$version/" packaging/linux/control.template > "$root/DEBIAN/control"
+      - name: Build deb
+        run: |
+          set -euo pipefail
+          out="logitech-sim-led-${GITHUB_REF_NAME}-amd64.deb"
+          dpkg-deb --build --root-owner-group debroot "$out"
+          echo "DEB_PATH=$out" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: logitech-sim-led-installer-linux
+          path: ${{ env.DEB_PATH }}
+          if-no-files-found: error
+
   publish-release:
-    needs: build
+    needs: [build, package-windows-msi, package-macos-pkg, package-linux-deb]
+    # The native installer jobs are newer and less battle-tested than
+    # `build` (which just tars/zips the binaries) -- if one of them fails,
+    # that shouldn't block publishing the release with whatever *did*
+    # succeed. `if: always()` runs this even when a dependency failed;
+    # gating on `build` specifically (not the installer jobs) means a
+    # genuinely broken build still stops the release, but a broken .msi
+    # doesn't take the .tar.gz/.zip down with it. download-artifact only
+    # pulls artifacts that were actually uploaded, so a failed packaging
+    # job just means its installer is missing from this release, not an
+    # error here.
+    if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

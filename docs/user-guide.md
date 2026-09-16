@@ -59,9 +59,19 @@ running**.
 
 ## Installing
 
-**Prebuilt binaries**: once a release is published, download the archive
-for your OS from the project's [GitHub Releases](https://github.com/gschuurman/logitech-sim-led/releases)
-page, and unzip it somewhere.
+Grab the latest release from [GitHub Releases](https://github.com/gschuurman/logitech-sim-led/releases):
+
+- **Windows**: the `.msi` -- installs to Program Files, adds a Start Menu
+  shortcut, uninstalls the normal way (Settings > Apps).
+- **macOS**: the `.pkg` for your chip (`aarch64` = Apple Silicon, `x86_64`
+  = Intel) -- installs to `/usr/local/`. To uninstall, run
+  `sudo /usr/local/share/logitech-sim-led/uninstall.sh`.
+- **Linux**: the `.deb` -- `sudo apt install ./logitech-sim-led-*.deb`,
+  and `sudo apt remove logitech-sim-led` to uninstall.
+
+Plain `.tar.gz`/`.zip` archives are also published for every platform if
+you'd rather just unpack the binaries yourself. See
+[installers.md](installers.md) for exactly what each installer does.
 
 **Build it yourself**: if there's no release yet for your platform, or you
 want the latest code, see the "Building" section in the main
@@ -89,7 +99,8 @@ want the latest code, see the "Building" section in the main
    (Forza on the same PC, LEDs on): the shipped file already has
    `sources.forza` and `outputs.logitech_led` enabled.
 
-4. **Run it:**
+4. **Run it:** the Start Menu shortcut (Windows/MSI install), or from a
+   terminal:
    ```
    sld-service
    ```

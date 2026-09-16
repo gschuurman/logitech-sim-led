@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Windows MSI definition, built with WiX v5 (`wix build`, not the older
+  candle.exe/light.exe from WiX v3). Built by
+  .github/workflows/release.yml on every `v*.*.*` tag; see that workflow
+  for the exact `-d Version`, `-d SourceDir`, and `-d RepoRoot` values
+  passed in.
+
+  Deliberately minimal for a first release: installs the two binaries,
+  the default config, LICENSE/README, and a Start Menu shortcut to run the
+  service; relies on MSI's built-in Programs and Features entry for
+  uninstall (nothing custom needed). Does NOT add the install folder to
+  PATH yet; that needs the WiX Util extension (util:Environment), left out
+  to keep this first cut to core WiX only. See docs/architecture.md
+  roadmap for adding it later.
+
+  Note for future edits: XML comments cannot contain a double hyphen
+  anywhere in their body, so avoid this project's usual em-dash-via-double-
+  hyphen prose style inside this file's comments specifically.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package name="logitech-sim-led"
+           manufacturer="Glenn Schuurman"
+           version="$(var.Version)"
+           upgradeCode="90179532-f82e-429b-ade2-1f51d1b56419"
+           language="1033">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="logitech-sim-led">
+        <Directory Id="ConfigFolder" Name="config" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="logitech-sim-led" />
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="logitech-sim-led" Level="1">
+      <ComponentRef Id="ServiceExeComponent" />
+      <ComponentRef Id="CliExeComponent" />
+      <ComponentRef Id="LicenseComponent" />
+      <ComponentRef Id="ReadmeComponent" />
+      <ComponentRef Id="ConfigComponent" />
+      <ComponentRef Id="StartMenuShortcutComponent" />
+    </Feature>
+
+    <Component Id="ServiceExeComponent" Directory="INSTALLFOLDER" Guid="*">
+      <File Id="SldServiceExe" Source="$(var.SourceDir)\sld-service.exe" KeyPath="yes" />
+    </Component>
+
+    <Component Id="CliExeComponent" Directory="INSTALLFOLDER" Guid="*">
+      <File Id="SldCliExe" Source="$(var.SourceDir)\sld-cli.exe" KeyPath="yes" />
+    </Component>
+
+    <Component Id="LicenseComponent" Directory="INSTALLFOLDER" Guid="*">
+      <File Id="LicenseTxt" Source="$(var.RepoRoot)\LICENSE" KeyPath="yes" />
+    </Component>
+
+    <Component Id="ReadmeComponent" Directory="INSTALLFOLDER" Guid="*">
+      <File Id="ReadmeMd" Source="$(var.RepoRoot)\README.md" KeyPath="yes" />
+    </Component>
+
+    <Component Id="ConfigComponent" Directory="ConfigFolder" Guid="*">
+      <File Id="DefaultToml" Source="$(var.RepoRoot)\config\default.toml" KeyPath="yes" />
+    </Component>
+
+    <Component Id="StartMenuShortcutComponent" Directory="ApplicationProgramsFolder" Guid="*">
+      <Shortcut Id="ServiceShortcut"
+                Name="logitech-sim-led"
+                Description="Run the logitech-sim-led telemetry/LED service"
+                Target="[INSTALLFOLDER]sld-service.exe"
+                WorkingDirectory="INSTALLFOLDER" />
+      <RemoveFolder Id="RemoveApplicationProgramsFolder" Directory="ApplicationProgramsFolder" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\logitech-sim-led" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+  </Package>
+</Wix>
