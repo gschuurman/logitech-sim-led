@@ -45,7 +45,7 @@ modules:
   - name: logitech-sim-led
     buildsystem: simple
     build-commands:
-      - cargo build --release --offline=false -p sld-service -p sld-cli
+      - cargo build --release -p sld-service -p sld-cli
       - install -Dm755 target/release/sld-service /app/bin/sld-service
       - install -Dm755 target/release/sld-cli /app/bin/sld-cli
       - install -Dm644 config/default.toml /app/etc/logitech-sim-led/default.toml
