@@ -19,11 +19,11 @@
   hyphen prose style inside this file's comments specifically.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package name="logitech-sim-led"
-           manufacturer="Glenn Schuurman"
-           version="$(var.Version)"
-           upgradeCode="90179532-f82e-429b-ade2-1f51d1b56419"
-           language="1033">
+  <Package Name="logitech-sim-led"
+           Manufacturer="Glenn Schuurman"
+           Version="$(var.Version)"
+           UpgradeCode="90179532-f82e-429b-ade2-1f51d1b56419"
+           Language="1033">
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <MediaTemplate EmbedCab="yes" />
