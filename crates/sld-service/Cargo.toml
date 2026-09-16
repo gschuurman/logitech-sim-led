@@ -39,7 +39,7 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 axum = { version = "0.7", features = ["ws"], optional = true }
-tray-icon = { version = "0.19", optional = true }
+tray-icon = { version = "0.25", optional = true }
 tao = { version = "0.30", optional = true }
 wry = { version = "0.47", optional = true, default-features = false, features = [
     "os-webview",
