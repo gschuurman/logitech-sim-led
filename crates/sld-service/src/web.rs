@@ -12,7 +12,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use sld_core::config::AppConfig;
-use sld_core::shutdown::ShutdownSignal;
+use sld_core::shutdown::{ShutdownHandle, ShutdownSignal};
 use sld_core::telemetry::TelemetryFrame;
 use sld_core::traits::TelemetryRx;
 use std::sync::{Arc, RwLock};
@@ -23,6 +23,7 @@ struct AppState {
     tx: broadcast::Sender<TelemetryFrame>,
     config: Arc<RwLock<AppConfig>>,
     live: LiveOutputHandles,
+    shutdown_handle: ShutdownHandle,
 }
 
 pub async fn serve(
@@ -31,6 +32,7 @@ pub async fn serve(
     mut shutdown: ShutdownSignal,
     config: Arc<RwLock<AppConfig>>,
     live: LiveOutputHandles,
+    shutdown_handle: ShutdownHandle,
 ) -> anyhow::Result<()> {
     // The bus receiver we're handed can only be subscribed to once; re-fan
     // it out into a local broadcast channel so every websocket client that
@@ -40,6 +42,7 @@ pub async fn serve(
         tx: local_tx.clone(),
         config,
         live,
+        shutdown_handle,
     });
 
     let forward_shutdown = shutdown.clone();
@@ -50,6 +53,7 @@ pub async fn serve(
         .route("/ws", get(ws_handler))
         .route("/api/test-leds", post(test_leds_handler))
         .route("/api/settings", get(get_settings).post(post_settings))
+        .route("/api/quit", post(quit_handler))
         .route("/favicon.png", get(favicon))
         .route("/logo.png", get(logo))
         .with_state(state);
@@ -118,6 +122,17 @@ async fn test_leds_handler() -> impl IntoResponse {
         Err(e) => serde_json::json!({ "ok": false, "message": format!("task panicked: {e}") }),
     };
     Json(body)
+}
+
+/// Same `ShutdownHandle` the GUI's tray "Quit" item and close-button (when
+/// minimize-to-tray is off) use -- see gui.rs, which polls
+/// `shutdown_signal.is_shutdown()` each tick specifically to notice a
+/// shutdown triggered from here and exit the window/tray too, not just
+/// the async service this axum server itself is part of.
+async fn quit_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    tracing::info!("quit requested from dashboard");
+    state.shutdown_handle.shutdown();
+    Json(serde_json::json!({ "ok": true }))
 }
 
 #[derive(Serialize)]

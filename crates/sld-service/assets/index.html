@@ -29,6 +29,18 @@
     gap: 0.9rem;
     margin-bottom: 1.75rem;
   }
+  header .danger-outline { margin-left: auto; }
+  .danger-outline {
+    background: transparent;
+    color: var(--danger);
+    border: 1px solid var(--danger);
+    border-radius: 8px;
+    padding: 0.45rem 0.9rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .danger-outline:hover { background: rgba(239, 68, 68, 0.12); }
   header img { width: 40px; height: 40px; border-radius: 10px; }
   header h1 { font-size: 1.15rem; font-weight: 600; margin: 0; }
   header .sub { font-size: 0.78rem; color: var(--muted); margin-top: 0.15rem; }
@@ -131,6 +143,7 @@
     <h1>logitech-sim-led</h1>
     <div class="sub">live telemetry &amp; RPM shift-light</div>
   </div>
+  <button id="quitBtn" class="danger-outline">Quit</button>
 </header>
 
 <div id="status"><span class="dot"></span><span id="statusText">connecting&hellip;</span></div>
@@ -321,6 +334,20 @@
       settingsResult.textContent = 'Request failed: ' + e;
     } finally {
       saveBtn.disabled = false;
+    }
+  });
+
+  // --- Quit ---
+  document.getElementById('quitBtn').addEventListener('click', async () => {
+    if (!confirm('Quit logitech-sim-led? This stops the service entirely, including LED output.')) {
+      return;
+    }
+    try {
+      await fetch('/api/quit', { method: 'POST' });
+    } catch (e) {
+      // Expected: the server shuts itself down as part of handling this,
+      // so the connection dropping (a fetch rejection) is the normal case
+      // here, not an error to show.
     }
   });
 </script>

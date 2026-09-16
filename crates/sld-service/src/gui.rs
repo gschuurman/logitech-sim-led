@@ -19,7 +19,7 @@ use tao::event::{Event, StartCause, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoop};
 use tao::window::WindowBuilder;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
-use tray_icon::{Icon as TrayIcon, TrayIconBuilder};
+use tray_icon::{Icon as TrayIcon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
 const ICON_BYTES: &[u8] = include_bytes!("../assets/icons/icon-256.png");
 
@@ -42,8 +42,9 @@ pub fn run() -> anyhow::Result<()> {
     // The async service (telemetry sources, LED output, the axum server
     // behind the webview) runs on its own thread/runtime -- this thread
     // is needed for tao's event loop below.
-    let service_shutdown = shutdown_signal;
+    let service_shutdown = shutdown_signal.clone();
     let service_cfg = Arc::clone(&shared_cfg);
+    let service_shutdown_handle = shutdown_handle.clone();
     let _service_thread = std::thread::Builder::new()
         .name("sld-service-async".into())
         .spawn(move || {
@@ -55,7 +56,9 @@ pub fn run() -> anyhow::Result<()> {
                 }
             };
             rt.block_on(async move {
-                if let Err(e) = run_service(service_cfg, service_shutdown).await {
+                if let Err(e) =
+                    run_service(service_cfg, service_shutdown_handle, service_shutdown).await
+                {
                     tracing::error!(error = %e, "service exited with error");
                 }
             });
@@ -128,10 +131,21 @@ pub fn run() -> anyhow::Result<()> {
         .with_menu(Box::new(tray_menu))
         .with_tooltip("logitech-sim-led")
         .with_icon(tray_icon_image)
+        // tray-icon's own default is `true` (shows the menu on left click
+        // too, not just right click) -- Windows convention is left click
+        // = default action, right click = context menu, and the menu
+        // popping up on left click read as "the icon does nothing" since
+        // there was no separate way to just open the window. Left click
+        // now fires a plain `TrayIconEvent::Click` instead, handled below
+        // to show the window; right click still shows the menu (that
+        // path doesn't go through this flag at all).
+        .with_menu_on_left_click(false)
         .build()?;
 
     let menu_rx = MenuEvent::receiver();
+    let tray_rx = TrayIconEvent::receiver();
     let mut window_visible = true;
+    let mut quitting = false;
 
     event_loop.run(move |event, _elwt, control_flow| {
         *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(150));
@@ -159,6 +173,19 @@ pub fn run() -> anyhow::Result<()> {
                 tracing::info!("logitech-sim-led GUI started");
             }
             _ => {}
+        }
+
+        while let Ok(event) = tray_rx.try_recv() {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                window.set_visible(true);
+                window.set_focus();
+                window_visible = true;
+            }
         }
 
         while let Ok(event) = menu_rx.try_recv() {
@@ -199,6 +226,21 @@ pub fn run() -> anyhow::Result<()> {
                 shutdown_handle.shutdown();
                 *control_flow = ControlFlow::Exit;
             }
+        }
+
+        // Catches shutdown triggered from somewhere other than the tray
+        // Quit item or the close button above -- currently just the
+        // dashboard's own Quit button (web.rs's /api/quit calls the same
+        // `ShutdownHandle`). Polled here rather than reacted to
+        // synchronously since it's set from a different thread. `quitting`
+        // (rather than comparing against `control_flow`, which gets reset
+        // to `WaitUntil` at the top of every tick regardless) avoids
+        // logging this repeatedly during the last ~150ms tick or two
+        // before the process actually exits.
+        if !quitting && shutdown_signal.is_shutdown() {
+            quitting = true;
+            tracing::info!("shutdown requested from elsewhere (e.g. dashboard Quit button)");
+            *control_flow = ControlFlow::Exit;
         }
 
         let _ = window_visible;

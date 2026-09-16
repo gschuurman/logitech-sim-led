@@ -33,6 +33,7 @@ impl ShutdownSignal {
     }
 }
 
+#[derive(Clone)]
 pub struct ShutdownHandle(watch::Sender<bool>);
 
 impl ShutdownHandle {

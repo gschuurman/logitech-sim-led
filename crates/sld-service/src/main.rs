@@ -27,7 +27,7 @@ mod web;
 
 use sld_core::bus;
 use sld_core::config::AppConfig;
-use sld_core::shutdown::ShutdownSignal;
+use sld_core::shutdown::{ShutdownHandle, ShutdownSignal};
 use std::sync::{Arc, RwLock};
 
 const WEB_BIND_ADDR: &str = "127.0.0.1:5301";
@@ -41,9 +41,13 @@ const WEB_BIND_ADDR: &str = "127.0.0.1:5301";
 /// also be handed to `gui::run()`'s close-button handler and to
 /// `web.rs`'s settings API -- one shared, live-mutable source of truth
 /// for config, not a snapshot each of those would otherwise load
-/// separately and drift out of sync.
+/// separately and drift out of sync. `shutdown_handle` is handed to
+/// `web.rs` too, for its Quit button -- the same handle the GUI's tray
+/// "Quit" item and close-button use, so either path converges on the
+/// same shutdown.
 async fn run_service(
     shared_cfg: Arc<RwLock<AppConfig>>,
+    shutdown_handle: ShutdownHandle,
     mut shutdown: ShutdownSignal,
 ) -> anyhow::Result<()> {
     let (bus_capacity, sources, outputs, live_outputs) = {
@@ -99,15 +103,24 @@ async fn run_service(
         let rx = bus_tx.subscribe();
         let shutdown = shutdown.clone();
         let shared_cfg = Arc::clone(&shared_cfg);
+        let shutdown_handle = shutdown_handle.clone();
         tasks.spawn(async move {
-            if let Err(e) = web::serve(WEB_BIND_ADDR, rx, shutdown, shared_cfg, live_outputs).await
+            if let Err(e) = web::serve(
+                WEB_BIND_ADDR,
+                rx,
+                shutdown,
+                shared_cfg,
+                live_outputs,
+                shutdown_handle,
+            )
+            .await
             {
                 tracing::error!(error = %e, "web UI server exited with error");
             }
         });
     }
     #[cfg(not(feature = "web"))]
-    let _ = live_outputs;
+    let _ = (live_outputs, shutdown_handle);
 
     shutdown.cancelled().await;
     tracing::info!("shutting down");
@@ -136,7 +149,11 @@ async fn main() -> anyhow::Result<()> {
 
     let shared_cfg = Arc::new(RwLock::new(config::load_default_config()?));
     let (shutdown_handle, shutdown_signal) = ShutdownHandle::new();
-    let service = tokio::spawn(run_service(shared_cfg, shutdown_signal));
+    let service = tokio::spawn(run_service(
+        shared_cfg,
+        shutdown_handle.clone(),
+        shutdown_signal,
+    ));
 
     tokio::signal::ctrl_c().await?;
     tracing::info!("ctrl-c received, shutting down");
