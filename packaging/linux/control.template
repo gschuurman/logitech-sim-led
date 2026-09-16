@@ -4,7 +4,7 @@ Section: misc
 Priority: optional
 Architecture: amd64
 Maintainer: Glenn Schuurman <glennschuurman@gmail.com>
-Depends: libudev1, libgtk-3-0, libwebkit2gtk-4.1-0, libayatana-appindicator3-1
+Depends: libudev1, libgtk-3-0, libwebkit2gtk-4.1-0, libayatana-appindicator3-1, libxdo3
 Homepage: https://github.com/gschuurman/logitech-sim-led
 Description: Telemetry to Logitech wheel LED service
  Cross-platform background service that ingests Forza Horizon 5/6 and
