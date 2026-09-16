@@ -62,10 +62,16 @@ pub struct OutputsConfig {
 pub struct LogitechLedConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    /// Fraction (0.0-1.0) of the idle->max RPM range at which the first LED
-    /// turns on.
+    /// Fraction (0.0-1.0) of `rpm_max` (redline) at which the first LED
+    /// turns on. Percent of redline, *not* of the idle-to-max range --
+    /// see `sld-output-logitech-hid::curve` for why that distinction
+    /// matters (it used to be idle-relative, which was a bug).
     #[serde(default = "default_shift_pct")]
     pub shift_point_pct: f32,
+    /// Fraction (0.0-1.0) of `rpm_max` at which all 5 LEDs are lit; the
+    /// bar stays solidly full from here up to redline.
+    #[serde(default = "default_full_bar_pct")]
+    pub full_bar_pct: f32,
     #[serde(default = "default_blink")]
     pub blink_at_redline: bool,
 }
@@ -74,7 +80,10 @@ fn default_true() -> bool {
     true
 }
 fn default_shift_pct() -> f32 {
-    0.85
+    0.6
+}
+fn default_full_bar_pct() -> f32 {
+    0.8
 }
 fn default_blink() -> bool {
     true

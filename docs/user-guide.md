@@ -122,13 +122,18 @@ want the latest code, see the "Building" section in the main
 
 ## Tuning the shift light
 
-Two settings in `config/default.toml`, under `[outputs.logitech_led]`:
+Three settings in `config/default.toml`, under `[outputs.logitech_led]`,
+all as a fraction of `rpm_max` (redline) for the current car -- *not* of
+the idle-to-redline range:
 
-- **`shift_point_pct`** (default `0.85`): how far through the RPM range
-  (from idle to redline) the *first* LED lights up. `0.85` means LEDs start
-  appearing at 85% of the way to redline. Lower this (e.g. `0.7`) for an
-  earlier warning, raise it (e.g. `0.95`) if you want them to appear right
-  at the very end.
+- **`shift_point_pct`** (default `0.6`): where the *first* LED lights up.
+  `0.6` means the first LED appears at 60% of redline. Lower this (e.g.
+  `0.5`) for an earlier warning, raise it if you want the ramp to start
+  later.
+- **`full_bar_pct`** (default `0.8`): where *all 5* LEDs are lit. From
+  here up to redline the bar stays solidly full -- `0.8` leaves the top
+  20% of the rev range fully lit rather than still ramping up right to
+  redline.
 - **`blink_at_redline`** (default `true`): whether all 5 LEDs flash once
   you hit redline, instead of just staying solid. Turn this off if you find
   the flashing distracting.

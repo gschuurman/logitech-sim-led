@@ -32,6 +32,7 @@ pub fn build_outputs(cfg: &AppConfig) -> Vec<Box<dyn OutputDevice>> {
         if led_cfg.enabled {
             let curve = ShiftLightCurve {
                 shift_point_pct: led_cfg.shift_point_pct,
+                full_bar_pct: led_cfg.full_bar_pct,
                 blink_at_redline: led_cfg.blink_at_redline,
             };
             outputs.push(Box::new(LogitechLedOutput::new(curve)));

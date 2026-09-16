@@ -64,7 +64,7 @@ impl OutputDevice for LogitechLedOutput {
                 }
                 _ = ticker.tick() => {
                     if let Some(f) = &latest {
-                        let state = curve.evaluate(f.rpm, f.rpm_idle, f.rpm_max);
+                        let state = curve.evaluate(f.rpm, f.rpm_max);
                         // Best-effort: if the writer thread hasn't drained
                         // the previous state yet, drop this one -- it'll be
                         // superseded by the next tick anyway.

@@ -13,7 +13,11 @@ bind_addr = "0.0.0.0:5300"
 
 [outputs.logitech_led]
 enabled = true
-# Fraction of the RPM range (idle -> max) at which the first shift-light
-# LED turns on. 0.85 means LEDs start lighting at 85% of the way to redline.
-shift_point_pct = 0.85
+# Fraction of rpm_max (redline) at which the first shift-light LED turns
+# on. 0.6 means the first LED lights at 60% of redline.
+shift_point_pct = 0.6
+# Fraction of rpm_max at which all 5 LEDs are lit; the bar stays solidly
+# full from here up to redline (0.8 leaves the top 20% of the rev range
+# fully lit, not still ramping).
+full_bar_pct = 0.8
 blink_at_redline = true
