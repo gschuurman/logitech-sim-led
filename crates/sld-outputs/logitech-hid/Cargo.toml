@@ -1,0 +1,13 @@
+[package]
+name = "sld-output-logitech-hid"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sld-core = { path = "../../sld-core" }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+hidapi = "2"

@@ -1,0 +1,27 @@
+# logitech-sim-led default configuration
+#
+# Copy this file, tweak it, and point the service at your copy (or edit
+# this one directly during development). Every section is optional --
+# omit a source/output entirely (or set enabled = false) to disable it.
+
+bus_capacity = 256
+
+[sources.forza]
+# Point Forza's in-game Settings > HUD and Gameplay > Data Out at
+# <this machine's IP>:5300 (use 127.0.0.1 if the game runs on the same PC).
+bind_addr = "0.0.0.0:5300"
+
+[outputs.logitech_led]
+enabled = true
+# Fraction of the RPM range (idle -> max) at which the first shift-light
+# LED turns on. 0.85 means LEDs start lighting at 85% of the way to redline.
+shift_point_pct = 0.85
+blink_at_redline = true
+
+[outputs.aux_display]
+enabled = false
+# Serial port for an ESP32-based second display, e.g. "COM5" on Windows or
+# "/dev/ttyUSB0" on Linux/macOS. Leave commented out to log frames instead
+# (useful for development without hardware attached).
+# serial_port = "/dev/ttyUSB0"
+update_rate_hz = 10.0

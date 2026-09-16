@@ -1,0 +1,11 @@
+[package]
+name = "sld-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+async-trait = { workspace = true }
+anyhow = { workspace = true }

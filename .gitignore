@@ -1,0 +1,12 @@
+/target/
+*.pdb
+
+# PlatformIO
+firmware/**/.pio/
+firmware/**/.vscode/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+*.swp

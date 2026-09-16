@@ -1,0 +1,102 @@
+name: Release
+
+# Tag a commit with e.g. `v0.1.0` and push the tag to trigger this:
+#   git tag v0.1.0 && git push origin v0.1.0
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # Only the two real binaries -- sld-service and sld-cli. Builds with
+      # default features (web UI on, tray off -- see docs/architecture.md).
+      - name: Build release binaries
+        run: cargo build --release --workspace --target ${{ matrix.target }} -p sld-service -p sld-cli
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin_dir="target/${{ matrix.target }}/release"
+          out="logitech-sim-led-${{ github.ref_name }}-${{ matrix.target }}"
+          mkdir -p "$out"
+          cp "$bin_dir/sld-service" "$bin_dir/sld-cli" "$out/"
+          cp -r config "$out/config"
+          cp README.md LICENSE "$out/"
+          cp -r docs "$out/docs"
+          tar -czf "${out}.tar.gz" "$out"
+          echo "ASSET_PATH=${out}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin_dir="target/${{ matrix.target }}/release"
+          out="logitech-sim-led-${{ github.ref_name }}-${{ matrix.target }}"
+          mkdir -p "$out"
+          cp "$bin_dir/sld-service.exe" "$bin_dir/sld-cli.exe" "$out/"
+          cp -r config "$out/config"
+          cp README.md LICENSE "$out/"
+          cp -r docs "$out/docs"
+          7z a "${out}.zip" "$out" > /dev/null
+          echo "ASSET_PATH=${out}.zip" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: logitech-sim-led-${{ matrix.target }}
+          path: ${{ env.ASSET_PATH }}
+          if-no-files-found: error
+
+  publish-release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false

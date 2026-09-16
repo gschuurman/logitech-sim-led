@@ -1,0 +1,36 @@
+[package]
+name = "sld-service"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "sld-service"
+path = "src/main.rs"
+
+[features]
+# Local web UI (status + live telemetry over a websocket) is on by default
+# since it's the primary way to see the service is doing something while
+# it's running headless.
+default = ["web"]
+web = ["dep:axum"]
+# System tray icon integration. Off by default: it requires running a
+# native event loop (tao) on the main thread instead of #[tokio::main], and
+# is shipped here only as a scaffold -- see src/tray.rs before enabling.
+tray = ["dep:tray-icon", "dep:tao"]
+
+[dependencies]
+sld-core = { path = "../sld-core" }
+sld-source-forza = { path = "../sld-sources/forza" }
+sld-output-logitech-hid = { path = "../sld-outputs/logitech-hid" }
+sld-output-aux-display = { path = "../sld-outputs/aux-display" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+axum = { version = "0.7", features = ["ws"], optional = true }
+tray-icon = { version = "0.19", optional = true }
+tao = { version = "0.30", optional = true }

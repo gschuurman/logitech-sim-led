@@ -1,0 +1,19 @@
+[package]
+name = "sld-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "sld-cli"
+path = "src/main.rs"
+
+[dependencies]
+sld-core = { path = "../sld-core" }
+sld-source-forza = { path = "../sld-sources/forza" }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+hidapi = "2"
+clap = { version = "4", features = ["derive"] }
