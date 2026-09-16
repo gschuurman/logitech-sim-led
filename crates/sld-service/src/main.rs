@@ -26,20 +26,37 @@ mod registry;
 mod web;
 
 use sld_core::bus;
+use sld_core::config::AppConfig;
 use sld_core::shutdown::ShutdownSignal;
+use std::sync::{Arc, RwLock};
 
 const WEB_BIND_ADDR: &str = "127.0.0.1:5301";
 
-/// Loads config, wires up every enabled source and output through the
-/// shared bus, and runs until `shutdown` is cancelled. Shared by the
-/// plain console entrypoint (which cancels it on Ctrl-C) and the GUI's
-/// background tokio thread (which cancels it from the tray "Quit" item).
-async fn run_service(mut shutdown: ShutdownSignal) -> anyhow::Result<()> {
-    let cfg = config::load_default_config()?;
-    let (bus_tx, _bus_rx) = bus::new_bus(cfg.bus_capacity);
-
-    let sources = registry::build_sources(&cfg);
-    let outputs = registry::build_outputs(&cfg);
+/// Wires up every enabled source and output through the shared bus, and
+/// runs until `shutdown` is cancelled. Shared by the plain console
+/// entrypoint (which cancels it on Ctrl-C) and the GUI's background tokio
+/// thread (which cancels it from the tray "Quit" item).
+///
+/// `shared_cfg` is loaded by the caller (not here) specifically so it can
+/// also be handed to `gui::run()`'s close-button handler and to
+/// `web.rs`'s settings API -- one shared, live-mutable source of truth
+/// for config, not a snapshot each of those would otherwise load
+/// separately and drift out of sync.
+async fn run_service(
+    shared_cfg: Arc<RwLock<AppConfig>>,
+    mut shutdown: ShutdownSignal,
+) -> anyhow::Result<()> {
+    let (bus_capacity, sources, outputs, live_outputs) = {
+        let cfg = shared_cfg.read().unwrap();
+        let (outputs, live_outputs) = registry::build_outputs(&cfg);
+        (
+            cfg.bus_capacity,
+            registry::build_sources(&cfg),
+            outputs,
+            live_outputs,
+        )
+    };
+    let (bus_tx, _bus_rx) = bus::new_bus(bus_capacity);
 
     tracing::info!(
         sources = sources.len(),
@@ -81,12 +98,16 @@ async fn run_service(mut shutdown: ShutdownSignal) -> anyhow::Result<()> {
     {
         let rx = bus_tx.subscribe();
         let shutdown = shutdown.clone();
+        let shared_cfg = Arc::clone(&shared_cfg);
         tasks.spawn(async move {
-            if let Err(e) = web::serve(WEB_BIND_ADDR, rx, shutdown).await {
+            if let Err(e) = web::serve(WEB_BIND_ADDR, rx, shutdown, shared_cfg, live_outputs).await
+            {
                 tracing::error!(error = %e, "web UI server exited with error");
             }
         });
     }
+    #[cfg(not(feature = "web"))]
+    let _ = live_outputs;
 
     shutdown.cancelled().await;
     tracing::info!("shutting down");
@@ -113,8 +134,9 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
+    let shared_cfg = Arc::new(RwLock::new(config::load_default_config()?));
     let (shutdown_handle, shutdown_signal) = ShutdownHandle::new();
-    let service = tokio::spawn(run_service(shutdown_signal));
+    let service = tokio::spawn(run_service(shared_cfg, shutdown_signal));
 
     tokio::signal::ctrl_c().await?;
     tracing::info!("ctrl-c received, shutting down");

@@ -122,23 +122,29 @@ want the latest code, see the "Building" section in the main
 
 ## Tuning the shift light
 
-Three settings in `config/default.toml`, under `[outputs.logitech_led]`,
-all as a fraction of `rpm_max` (redline) for the current car -- *not* of
-the idle-to-redline range:
+Open the dashboard (the app's own window, or `http://127.0.0.1:5301` in a
+browser) and use the **Settings** panel -- two sliders plus a live preview
+bar:
 
-- **`shift_point_pct`** (default `0.6`): where the *first* LED lights up.
-  `0.6` means the first LED appears at 60% of redline. Lower this (e.g.
-  `0.5`) for an earlier warning, raise it if you want the ramp to start
-  later.
-- **`full_bar_pct`** (default `0.8`): where *all 5* LEDs are lit. From
-  here up to redline the bar stays solidly full -- `0.8` leaves the top
-  20% of the rev range fully lit rather than still ramping up right to
-  redline.
-- **`blink_at_redline`** (default `true`): whether all 5 LEDs flash once
-  you hit redline, instead of just staying solid. Turn this off if you find
-  the flashing distracting.
+- **Start flashing at**: where the *first* LED lights up, as a percentage
+  of `rpm_max` (redline) for the current car -- *not* of the
+  idle-to-redline range. Lower this for an earlier warning.
+- **Fully on at**: where *all 5* LEDs are lit. From here up to redline the
+  bar stays solidly full -- e.g. 80% leaves the top 20% of the rev range
+  fully lit rather than still ramping up right to redline.
+- **Blink all LEDs at redline**: whether all 5 flash once you hit redline,
+  instead of just staying solid.
+- **Minimize to tray**: whether closing the window (the title bar X
+  button) hides it to the tray icon instead of quitting the app.
 
-Restart `sld-service` after changing config for it to take effect.
+Hit **Save Settings** -- changes apply immediately (no restart needed) and
+persist to a per-user config file, so they survive a restart too. The
+same three LED settings can still be hand-edited in `config/default.toml`
+under `[outputs.logitech_led]` (`shift_point_pct`, `full_bar_pct`,
+`blink_at_redline`, all `0.0`-`1.0`) -- useful for the headless/console
+build (`--no-default-features --features web`, e.g. under systemd), which
+has no window to toggle "minimize to tray" for in the first place.
+Restart `sld-service` after hand-editing config for it to take effect.
 
 ## Troubleshooting
 

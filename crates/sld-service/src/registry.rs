@@ -11,6 +11,7 @@ use sld_core::traits::{OutputDevice, TelemetrySource};
 use sld_output_logitech_hid::curve::ShiftLightCurve;
 use sld_output_logitech_hid::device::LogitechLedOutput;
 use sld_source_forza::ForzaSource;
+use std::sync::{Arc, RwLock};
 
 pub fn build_sources(cfg: &AppConfig) -> Vec<Box<dyn TelemetrySource>> {
     let mut sources: Vec<Box<dyn TelemetrySource>> = Vec::new();
@@ -25,8 +26,18 @@ pub fn build_sources(cfg: &AppConfig) -> Vec<Box<dyn TelemetrySource>> {
     sources
 }
 
-pub fn build_outputs(cfg: &AppConfig) -> Vec<Box<dyn OutputDevice>> {
+/// Handles onto live-updatable state for outputs that support it, keyed by
+/// the same names `web.rs`'s settings API uses -- currently just the LED
+/// shift-light curve, updated in lockstep with the shared `AppConfig`
+/// whenever settings are saved (see `web::settings_handlers`).
+#[derive(Default, Clone)]
+pub struct LiveOutputHandles {
+    pub logitech_led_curve: Option<Arc<RwLock<ShiftLightCurve>>>,
+}
+
+pub fn build_outputs(cfg: &AppConfig) -> (Vec<Box<dyn OutputDevice>>, LiveOutputHandles) {
     let mut outputs: Vec<Box<dyn OutputDevice>> = Vec::new();
+    let mut live = LiveOutputHandles::default();
 
     if let Some(led_cfg) = &cfg.outputs.logitech_led {
         if led_cfg.enabled {
@@ -35,12 +46,14 @@ pub fn build_outputs(cfg: &AppConfig) -> Vec<Box<dyn OutputDevice>> {
                 full_bar_pct: led_cfg.full_bar_pct,
                 blink_at_redline: led_cfg.blink_at_redline,
             };
-            outputs.push(Box::new(LogitechLedOutput::new(curve)));
+            let output = LogitechLedOutput::new(curve);
+            live.logitech_led_curve = Some(output.curve_handle());
+            outputs.push(Box::new(output));
         }
     }
 
     // Future outputs register here, e.g.:
     //   if let Some(c) = &cfg.outputs.some_output { if c.enabled { outputs.push(...) } }
 
-    outputs
+    (outputs, live)
 }

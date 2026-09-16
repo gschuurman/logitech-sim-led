@@ -11,8 +11,9 @@
 //! background thread, and this module owns the main thread's `tao`
 //! `EventLoop` instead.
 
-use crate::{autostart, run_service, WEB_BIND_ADDR};
+use crate::{autostart, config, run_service, WEB_BIND_ADDR};
 use sld_core::shutdown::ShutdownHandle;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tao::event::{Event, StartCause, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoop};
@@ -31,12 +32,18 @@ fn load_icon_rgba() -> anyhow::Result<(Vec<u8>, u32, u32)> {
 pub fn run() -> anyhow::Result<()> {
     init_tracing();
 
+    // Shared with the background service thread (settings API reads/
+    // writes it) and read directly below by the close-button handler, so
+    // a settings change takes effect immediately without a restart.
+    let shared_cfg = Arc::new(RwLock::new(config::load_default_config()?));
+
     let (shutdown_handle, shutdown_signal) = ShutdownHandle::new();
 
     // The async service (telemetry sources, LED output, the axum server
     // behind the webview) runs on its own thread/runtime -- this thread
     // is needed for tao's event loop below.
     let service_shutdown = shutdown_signal;
+    let service_cfg = Arc::clone(&shared_cfg);
     let _service_thread = std::thread::Builder::new()
         .name("sld-service-async".into())
         .spawn(move || {
@@ -48,7 +55,7 @@ pub fn run() -> anyhow::Result<()> {
                 }
             };
             rt.block_on(async move {
-                if let Err(e) = run_service(service_shutdown).await {
+                if let Err(e) = run_service(service_cfg, service_shutdown).await {
                     tracing::error!(error = %e, "service exited with error");
                 }
             });
@@ -134,11 +141,19 @@ pub fn run() -> anyhow::Result<()> {
                 event: WindowEvent::CloseRequested,
                 ..
             } => {
-                // Minimize-to-tray behavior: closing the window hides it
-                // rather than quitting the whole app -- the tray icon is
-                // the thing that keeps the service alive.
-                window.set_visible(false);
-                window_visible = false;
+                // Re-read live -- toggled from the dashboard's Settings
+                // panel (web.rs's settings API mutates the same
+                // `shared_cfg`), so a change takes effect on the very
+                // next close, no restart needed.
+                let minimize_to_tray = shared_cfg.read().unwrap().app.minimize_to_tray_on_close;
+                if minimize_to_tray {
+                    window.set_visible(false);
+                    window_visible = false;
+                } else {
+                    tracing::info!("window closed with minimize-to-tray off, quitting");
+                    shutdown_handle.shutdown();
+                    *control_flow = ControlFlow::Exit;
+                }
             }
             Event::NewEvents(StartCause::Init) => {
                 tracing::info!("logitech-sim-led GUI started");

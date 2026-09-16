@@ -17,20 +17,32 @@ use sld_core::shutdown::ShutdownSignal;
 use sld_core::telemetry::TelemetryFrame;
 use sld_core::traits::{OutputDevice, TelemetryRx};
 use std::sync::mpsc::{sync_channel, RecvTimeoutError};
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 
 pub struct LogitechLedOutput {
-    curve: ShiftLightCurve,
+    curve: Arc<RwLock<ShiftLightCurve>>,
     update_interval: Duration,
 }
 
 impl LogitechLedOutput {
     pub fn new(curve: ShiftLightCurve) -> Self {
         Self {
-            curve,
+            curve: Arc::new(RwLock::new(curve)),
             update_interval: Duration::from_millis(33), // ~30 Hz
         }
+    }
+
+    /// A shared handle to the curve this output evaluates against every
+    /// tick -- updating it through this handle (e.g. from a settings API)
+    /// takes effect immediately, no restart needed. Keeps this crate
+    /// unaware of `sld-core::config::AppConfig`/settings persistence
+    /// entirely; `sld-service`'s registry.rs is the one place that wires
+    /// config into concrete sources/outputs, this is just the live knob
+    /// it hands out.
+    pub fn curve_handle(&self) -> Arc<RwLock<ShiftLightCurve>> {
+        Arc::clone(&self.curve)
     }
 }
 
@@ -48,7 +60,6 @@ impl OutputDevice for LogitechLedOutput {
         let (state_tx, state_rx) = sync_channel::<LedBarState>(1);
         let hid_thread = std::thread::spawn(move || hid_writer_loop(state_rx));
 
-        let curve = self.curve;
         let mut ticker = tokio::time::interval(self.update_interval);
         let mut latest: Option<TelemetryFrame> = None;
 
@@ -64,6 +75,11 @@ impl OutputDevice for LogitechLedOutput {
                 }
                 _ = ticker.tick() => {
                     if let Some(f) = &latest {
+                        // Re-read every tick (cheap, uncontended lock at
+                        // ~30 Hz) rather than snapshotting once outside the
+                        // loop, so a settings change takes effect on the
+                        // very next tick.
+                        let curve = *self.curve.read().unwrap();
                         let state = curve.evaluate(f.rpm, f.rpm_max);
                         // Best-effort: if the writer thread hasn't drained
                         // the previous state yet, drop this one -- it'll be

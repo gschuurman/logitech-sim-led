@@ -4,26 +4,33 @@
 //! next additions on top of this router; the websocket + broadcast-fanout
 //! pattern here is what they'd build on.
 
+use crate::registry::LiveOutputHandles;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::response::{Html, IntoResponse};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use serde::{Deserialize, Serialize};
+use sld_core::config::AppConfig;
 use sld_core::shutdown::ShutdownSignal;
 use sld_core::telemetry::TelemetryFrame;
 use sld_core::traits::TelemetryRx;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 
 #[derive(Clone)]
 struct AppState {
     tx: broadcast::Sender<TelemetryFrame>,
+    config: Arc<RwLock<AppConfig>>,
+    live: LiveOutputHandles,
 }
 
 pub async fn serve(
     bind_addr: &str,
     rx: TelemetryRx,
     mut shutdown: ShutdownSignal,
+    config: Arc<RwLock<AppConfig>>,
+    live: LiveOutputHandles,
 ) -> anyhow::Result<()> {
     // The bus receiver we're handed can only be subscribed to once; re-fan
     // it out into a local broadcast channel so every websocket client that
@@ -31,6 +38,8 @@ pub async fn serve(
     let (local_tx, _local_rx) = broadcast::channel(64);
     let state = Arc::new(AppState {
         tx: local_tx.clone(),
+        config,
+        live,
     });
 
     let forward_shutdown = shutdown.clone();
@@ -40,6 +49,7 @@ pub async fn serve(
         .route("/", get(index))
         .route("/ws", get(ws_handler))
         .route("/api/test-leds", post(test_leds_handler))
+        .route("/api/settings", get(get_settings).post(post_settings))
         .route("/favicon.png", get(favicon))
         .route("/logo.png", get(logo))
         .with_state(state);
@@ -108,6 +118,88 @@ async fn test_leds_handler() -> impl IntoResponse {
         Err(e) => serde_json::json!({ "ok": false, "message": format!("task panicked: {e}") }),
     };
     Json(body)
+}
+
+#[derive(Serialize)]
+struct SettingsView {
+    shift_point_pct: f32,
+    full_bar_pct: f32,
+    blink_at_redline: bool,
+    minimize_to_tray_on_close: bool,
+}
+
+#[derive(Deserialize)]
+struct SettingsUpdate {
+    shift_point_pct: f32,
+    full_bar_pct: f32,
+    blink_at_redline: bool,
+    minimize_to_tray_on_close: bool,
+}
+
+async fn get_settings(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let cfg = state.config.read().unwrap();
+    let led = cfg.outputs.logitech_led.clone().unwrap_or_default();
+    Json(SettingsView {
+        shift_point_pct: led.shift_point_pct,
+        full_bar_pct: led.full_bar_pct,
+        blink_at_redline: led.blink_at_redline,
+        minimize_to_tray_on_close: cfg.app.minimize_to_tray_on_close,
+    })
+}
+
+/// Applies a settings change immediately (the running LED output re-reads
+/// its curve every ~33ms tick, and the GUI's close handler re-reads
+/// `minimize_to_tray_on_close` on every close -- see device.rs/gui.rs)
+/// and persists it to the per-user config file (see
+/// `crate::config::save`), so it survives a restart too.
+async fn post_settings(
+    State(state): State<Arc<AppState>>,
+    Json(update): Json<SettingsUpdate>,
+) -> impl IntoResponse {
+    let pct_range = 0.0..=1.0;
+    if !pct_range.contains(&update.shift_point_pct) || !pct_range.contains(&update.full_bar_pct) {
+        return Json(serde_json::json!({
+            "ok": false,
+            "message": "percentages must be between 0 and 100",
+        }));
+    }
+    if update.full_bar_pct <= update.shift_point_pct {
+        return Json(serde_json::json!({
+            "ok": false,
+            "message": "\"fully on\" percentage must be greater than \"start flashing\" percentage",
+        }));
+    }
+
+    {
+        let mut cfg = state.config.write().unwrap();
+        let led = cfg
+            .outputs
+            .logitech_led
+            .get_or_insert_with(Default::default);
+        led.shift_point_pct = update.shift_point_pct;
+        led.full_bar_pct = update.full_bar_pct;
+        led.blink_at_redline = update.blink_at_redline;
+        cfg.app.minimize_to_tray_on_close = update.minimize_to_tray_on_close;
+    }
+
+    if let Some(curve) = &state.live.logitech_led_curve {
+        let mut curve = curve.write().unwrap();
+        curve.shift_point_pct = update.shift_point_pct;
+        curve.full_bar_pct = update.full_bar_pct;
+        curve.blink_at_redline = update.blink_at_redline;
+    }
+
+    let save_result = crate::config::save(&state.config.read().unwrap());
+    match save_result {
+        Ok(path) => Json(serde_json::json!({
+            "ok": true,
+            "message": format!("Saved to {}", path.display()),
+        })),
+        Err(e) => Json(serde_json::json!({
+            "ok": false,
+            "message": format!("Applied, but failed to save to disk: {e}"),
+        })),
+    }
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl IntoResponse {

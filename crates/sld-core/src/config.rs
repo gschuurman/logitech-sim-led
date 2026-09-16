@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
+    pub app: AppRuntimeConfig,
+    #[serde(default)]
     pub sources: SourcesConfig,
     #[serde(default)]
     pub outputs: OutputsConfig,
@@ -24,9 +26,29 @@ fn default_bus_capacity() -> usize {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            app: AppRuntimeConfig::default(),
             sources: SourcesConfig::default(),
             outputs: OutputsConfig::default(),
             bus_capacity: default_bus_capacity(),
+        }
+    }
+}
+
+/// Settings for the native GUI shell itself (`sld-service`'s `gui`
+/// feature), as opposed to a telemetry source or output.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppRuntimeConfig {
+    /// Whether closing the main window (the title bar X button) hides it
+    /// to the tray icon instead of quitting the whole app. Off means the
+    /// X button actually exits, same as a normal window.
+    #[serde(default = "default_true")]
+    pub minimize_to_tray_on_close: bool,
+}
+
+impl Default for AppRuntimeConfig {
+    fn default() -> Self {
+        Self {
+            minimize_to_tray_on_close: true,
         }
     }
 }
@@ -74,6 +96,17 @@ pub struct LogitechLedConfig {
     pub full_bar_pct: f32,
     #[serde(default = "default_blink")]
     pub blink_at_redline: bool,
+}
+
+impl Default for LogitechLedConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            shift_point_pct: default_shift_pct(),
+            full_bar_pct: default_full_bar_pct(),
+            blink_at_redline: default_blink(),
+        }
+    }
 }
 
 fn default_true() -> bool {

@@ -145,7 +145,7 @@ reverse-engineering:
 | Forza Dash parsing (speed, gear, pedals, fuel, lap, tire wear/temps) | Verified against the same official docs, including the real structural difference between Horizon's and Motorsport's layouts (see docs/telemetry-protocol-forza.md) -- covered by unit tests in `sld-sources/forza/src/packet.rs`. `Gear`'s Reverse/Neutral convention specifically is *not* defined by Forza's docs, so it's exposed as a raw value. |
 | G27/G29/G923 LED HID protocol | Verified against the actively-maintained `berarma/new-lg4ff` Linux driver source, including the G923 PlayStation-mode-switch handshake -- see docs/led-hid-protocol.md. G923 Xbox-mode is an inference, not driver-confirmed. |
 | G920/Driving Force GT LED HID protocol | Not implemented -- the reference driver doesn't register LED support for these either, so rather than guess, the service now reports "found this wheel, but its LED protocol isn't implemented" instead of silently doing nothing. |
-| Web UI | Working live-telemetry dashboard, plus a "Test LEDs" button (`/api/test-leds`) that drives the wheel independent of any game. |
+| Web UI | Working live-telemetry dashboard, a "Test LEDs" button (`/api/test-leds`) that drives the wheel independent of any game, and a Settings panel (`/api/settings`, GET/POST) to live-tune the LED curve and the "minimize to tray" behavior -- see the table row below and web.rs. |
 | Native GUI / tray | Wired in and default-on -- see gui.rs. "Start with Windows" is Windows-only so far (per-user registry Run key); Linux/macOS autostart (XDG `.desktop` / `LaunchAgents`) isn't implemented, see autostart.rs. |
 
 A second output (e.g. an auxiliary/second display) isn't built yet -- see
@@ -166,7 +166,10 @@ docs/adding-an-output.md for the shape it would take when it's needed.
 - Linux (`.desktop` autostart file) and macOS (`LaunchAgent` plist)
   equivalents of the Windows "Start with Windows" toggle -- see
   autostart.rs.
-- Add a config section + editor in the web UI instead of hand-editing TOML.
+- The dashboard's Settings panel (see web.rs's `/api/settings`) covers the
+  LED curve and "minimize to tray" so far; other config -- Forza's bind
+  address, enabling/disabling whole sources or outputs -- still needs
+  hand-editing TOML.
 - A second real game source (proves the modularity claim beyond one
   example) -- iRacing and ACC both expose shared-memory telemetry, which is
   a different `TelemetrySource` shape (polling shared memory instead of a
