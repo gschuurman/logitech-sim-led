@@ -54,8 +54,8 @@ fn default_forza_bind() -> String {
 pub struct OutputsConfig {
     #[serde(default)]
     pub logitech_led: Option<LogitechLedConfig>,
-    #[serde(default)]
-    pub aux_display: Option<AuxDisplayConfig>,
+    // Future outputs (a second display, an OBS overlay, ...) get their own
+    // optional section here -- see docs/adding-an-output.md.
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,21 +78,4 @@ fn default_shift_pct() -> f32 {
 }
 fn default_blink() -> bool {
     true
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuxDisplayConfig {
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    /// Serial port for the aux display (e.g. an ESP32), e.g. "COM5" or
-    /// "/dev/ttyUSB0". `None` runs with a logging-only transport, which is
-    /// useful for development without hardware attached.
-    #[serde(default)]
-    pub serial_port: Option<String>,
-    #[serde(default = "default_aux_rate")]
-    pub update_rate_hz: f32,
-}
-
-fn default_aux_rate() -> f32 {
-    10.0
 }

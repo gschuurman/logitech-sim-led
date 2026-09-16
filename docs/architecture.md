@@ -6,13 +6,11 @@
    without hard-coding Forza into the core of the app.
 2. Drive the RPM shift-light LEDs on a Logitech G-series wheel from that
    telemetry.
-3. **Modularity**: adding another game (iRacing, ACC, BeamNG, ...) should be
-   additive -- a new crate plus a config section -- never a change to
-   existing sources, outputs, or the core.
-4. Start the foundation for a **second output**: an auxiliary display (e.g.
-   ESP32 + screen) showing a different slice of the same telemetry, without
-   waiting on final hardware/UI decisions.
-5. Cross-platform (Windows/Linux/macOS), and specifically **not** dependent
+3. **Modularity**: adding another game (iRacing, ACC, BeamNG, ...) or another
+   output (a second display, an OBS overlay, ...) should be additive -- a
+   new crate plus a config section -- never a change to existing sources,
+   outputs, or the core.
+4. Cross-platform (Windows/Linux/macOS), and specifically **not** dependent
    on Logitech G HUB being installed -- LED output talks to the wheel
    directly over USB HID.
 
@@ -67,11 +65,9 @@ crates/
     (future: iracing/, acc/, beamng/, ...)
   sld-outputs/
     logitech-hid/               RPM LED output over raw USB HID
-    aux-display/                 second-display output (foundation)
+    (future: a second display, an OBS overlay, ...)
   sld-service/                  the daemon: config, wiring, web UI, tray scaffold
   sld-cli/                      dev/debug tooling (HID list, packet capture)
-firmware/
-  esp32-aux-display/           matching microcontroller-side stub
 docs/                          this file and friends
 config/
   default.toml                 documented example config
@@ -95,10 +91,10 @@ to wire things together; nothing depends on `sld-service`.
    whether to blink) at a fixed ~30 Hz tick, and hands the latest desired
    state to a dedicated OS thread that owns the blocking HID device and
    writes the actual report.
-4. Simultaneously (same bus, separate subscription), `AuxDisplayOutput`
-   down-samples frames to `update_rate_hz`, converts to the smaller
-   `AuxFrame` wire schema, and writes it as a line of JSON to whatever
-   `AuxTransport` is configured (serial today).
+
+A second output (a display, an overlay, ...) would subscribe to the same
+bus independently, at whatever rate it needs -- see
+docs/adding-an-output.md.
 
 A slow or misbehaving output can't stall another output or a source: each
 has its own `broadcast::Receiver`, and a receiver that falls behind just
@@ -133,21 +129,22 @@ background service):
 
 ## What's genuinely done vs. foundation-only
 
-Being direct about confidence levels, since some of this is
-community-reverse-engineered protocol rather than an official spec:
+Being direct about confidence levels -- the LED path is verified against
+official documentation; the HID output side is still community
+reverse-engineering:
 
 | Piece | Status |
 |---|---|
 | Core traits, bus, shutdown, config | Solid -- this is the actual architecture, not a stub. |
-| Forza Sled parsing (RPM, idle, redline) | High confidence -- byte-stable across Forza titles for years; this is what the LED output actually needs. |
-| Forza Dash parsing (speed, gear, pedals, fuel, lap) | Good confidence, but **not captured against a live game** in this environment -- verify with `sld-cli capture-forza` before trusting exact offsets on your title/version. |
-| Forza tire-wear extension | Speculative placeholder -- explicitly marked unverified in code. |
+| Forza Sled parsing (RPM, idle, redline) | Verified against Forza's own Data Out documentation for both Horizon 6 and Motorsport; byte-identical across titles. This is all the LED output needs. |
+| Forza Dash parsing (speed, gear, pedals, fuel, lap, tire wear/temps) | Verified against the same official docs, including the real structural difference between Horizon's and Motorsport's layouts (see docs/telemetry-protocol-forza.md) -- covered by unit tests in `sld-sources/forza/src/packet.rs`. `Gear`'s Reverse/Neutral convention specifically is *not* defined by Forza's docs, so it's exposed as a raw value. |
 | G29/G27 LED HID protocol | Matches widely-cited community reverse-engineering (same command Linux's `hid-lg4ff` and tools like `oversteer` use). |
 | G920/G923 LED HID protocol | Stub only -- mirrors the G29 command as a starting point, explicitly marked unverified. |
-| aux-display transport + wire schema + `OutputDevice` | Real, working code path (serial transport, JSON schema, rate limiting). |
-| ESP32 firmware | Stub that proves the link (parses frames, prints them) -- no actual display driver. |
 | Web UI | Working minimal live-telemetry page. |
 | Tray icon | Scaffolded, not wired into `main()` -- see tray.rs. |
+
+A second output (e.g. an auxiliary/second display) isn't built yet -- see
+docs/adding-an-output.md for the shape it would take when it's needed.
 
 ## Extending
 
@@ -155,12 +152,10 @@ community-reverse-engineered protocol rather than an official spec:
 - New output -> docs/adding-an-output.md
 - Forza wire format details -> docs/telemetry-protocol-forza.md
 - LED HID protocol details -> docs/led-hid-protocol.md
-- Aux display wire format -> docs/aux-display-protocol.md
 
 ## Near-term roadmap (not built yet)
 
-- Verify G920/G923 LED protocol against real hardware; verify Forza Dash
-  offsets and the tire-wear extension via `sld-cli capture-forza`.
+- Verify G920/G923 LED protocol against real hardware.
 - Wire the tray icon into `main()` (see tray.rs for the exact restructuring
   needed).
 - Add a config section + editor in the web UI instead of hand-editing TOML.
@@ -168,5 +163,5 @@ community-reverse-engineered protocol rather than an official spec:
   example) -- iRacing and ACC both expose shared-memory telemetry, which is
   a different `TelemetrySource` shape (polling shared memory instead of a
   UDP socket) and a good test that the trait boundary holds up.
-- Pick real aux-display hardware and replace the firmware stub's
-  `Serial.printf` with actual draw calls.
+- A second output, once there's a concrete need for one -- see
+  docs/adding-an-output.md for what that involves.

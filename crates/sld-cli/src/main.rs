@@ -86,11 +86,26 @@ async fn capture_forza(bind: &str, count: usize) -> anyhow::Result<()> {
                         dash.speed_mps, dash.gear, dash.fuel
                     );
                 }
-                if let Some(tw) = &pkt.tire_wear {
-                    println!(
-                        "      tire_wear (UNVERIFIED offsets): fl={:.3} fr={:.3} rl={:.3} rr={:.3}",
-                        tw.front_left, tw.front_right, tw.rear_left, tw.rear_right
-                    );
+                match &pkt.extras {
+                    sld_source_forza::packet::TitleExtras::Horizon {
+                        car_group,
+                        smashable_vel_diff,
+                        smashable_mass,
+                    } => {
+                        println!(
+                            "      horizon extras: car_group={car_group} smashable_vel_diff={smashable_vel_diff:.2} smashable_mass={smashable_mass:.1}"
+                        );
+                    }
+                    sld_source_forza::packet::TitleExtras::Motorsport {
+                        tire_wear,
+                        track_ordinal,
+                    } => {
+                        println!(
+                            "      motorsport extras: track_ordinal={track_ordinal} tire_wear fl={:.3} fr={:.3} rl={:.3} rr={:.3}",
+                            tire_wear.front_left, tire_wear.front_right, tire_wear.rear_left, tire_wear.rear_right
+                        );
+                    }
+                    sld_source_forza::packet::TitleExtras::None => {}
                 }
             }
             None => println!("      (too short to parse as Sled format)"),

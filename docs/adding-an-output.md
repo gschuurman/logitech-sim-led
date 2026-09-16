@@ -1,8 +1,8 @@
 # Adding a new output device
 
-Using `sld-output-logitech-hid` and `sld-output-aux-display` as templates.
-Examples of things that fit this shape: a second wheel's LEDs, an OBS
-overlay (WebSocket/browser-source), logging telemetry to disk/CSV, RGB
+Using `sld-output-logitech-hid` as the template. Examples of things that
+fit this shape: a second display, a second wheel's LEDs, an OBS overlay
+(WebSocket/browser-source), logging telemetry to disk/CSV, RGB
 keyboard/mouse lighting, a haptic buzzer on shift.
 
 1. **New crate**: `crates/sld-outputs/<name>/`, depending on `sld-core`
@@ -23,11 +23,12 @@ keyboard/mouse lighting, a haptic buzzer on shift.
      device from stalling the tokio runtime, and naturally coalesces
      updates (the thread always acts on the newest state, never a queue of
      stale ones).
-   - If the device only needs occasional/rate-limited updates (like the aux
-     display, which doesn't need every frame at the source's native rate),
-     down-sample with a `tokio::time::interval` the way
-     `sld-output-aux-display/src/device.rs` does, rather than acting on
-     every single bus message.
+   - If the device only needs occasional/rate-limited updates (e.g. a
+     display that doesn't need every frame at the source's native rate),
+     down-sample with a `tokio::time::interval` in your `run` loop instead
+     of acting on every single bus message -- see the LED output's own
+     `~30 Hz` ticker in `sld-output-logitech-hid/src/device.rs` for the
+     pattern, just at whatever rate your device actually needs.
 
 3. **Config**: add an `Option<YourOutputConfig>` field to
    `sld_core::config::OutputsConfig` (see `LogitechLedConfig` for the

@@ -17,11 +17,3 @@ enabled = true
 # LED turns on. 0.85 means LEDs start lighting at 85% of the way to redline.
 shift_point_pct = 0.85
 blink_at_redline = true
-
-[outputs.aux_display]
-enabled = false
-# Serial port for an ESP32-based second display, e.g. "COM5" on Windows or
-# "/dev/ttyUSB0" on Linux/macOS. Leave commented out to log frames instead
-# (useful for development without hardware attached).
-# serial_port = "/dev/ttyUSB0"
-update_rate_hz = 10.0

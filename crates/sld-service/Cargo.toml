@@ -23,7 +23,6 @@ tray = ["dep:tray-icon", "dep:tao"]
 sld-core = { path = "../sld-core" }
 sld-source-forza = { path = "../sld-sources/forza" }
 sld-output-logitech-hid = { path = "../sld-outputs/logitech-hid" }
-sld-output-aux-display = { path = "../sld-outputs/aux-display" }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

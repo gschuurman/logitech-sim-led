@@ -1,24 +1,56 @@
 //! Parser for the Forza "Data Out" UDP telemetry packet.
 //!
-//! Forza Horizon 5/6 and Forza Motorsport all expose telemetry through the
-//! same in-game "Data Out" feature. Three packet formats exist: Sled (232
-//! bytes), Dash / Car Dash (Sled + more, 311 bytes), and Race. This parser
-//! reads the Sled block unconditionally -- it has been byte-stable across
-//! Forza titles for years and is what the LED shift-light output actually
-//! needs (RPM, idle RPM, redline) -- and additionally reads the Dash block
-//! when the packet is long enough to contain it.
+//! Byte layout verified against Forza's own documentation:
+//! - Forza Horizon 6: <https://support.forza.net/hc/en-us/articles/51744149102611-Forza-Horizon-6-Data-Out-Documentation>
+//!   (Forza Horizon 5's Car Dash payload is documented elsewhere as
+//!   byte-for-byte identical to Horizon 6's.)
+//! - Forza Motorsport (2023): <https://support.forza.net/hc/en-us/articles/21742934024211-Forza-Motorsport-Data-Out-Documentation>
 //!
-//! IMPORTANT: Titles occasionally append new fields to the *end* of the
-//! Dash block (Forza Horizon 5, for example, is widely reported to add tire
-//! wear fields after the base Dash block). The trailing `TireWearExt` read
-//! here is a best-effort placeholder for that and is **not verified**
-//! against a live capture. Before depending on it (or on exact `Gear`
-//! semantics), run `sld-cli capture-forza` against your actual game/title
-//! and confirm the bytes -- see docs/telemetry-protocol-forza.md.
+//! There are two genuinely different layouts, not one layout with an
+//! optional trailing extension as earlier revisions of this parser assumed:
+//!
+//! - **Forza Motorsport** lets the player pick "Sled" (232 bytes) or "Dash"
+//!   (232-byte Sled prefix, then Position/Speed/.../pedals/Gear, then
+//!   `TireWearFrontLeft..RearRight` and `TrackOrdinal` -- 331 bytes).
+//! - **Forza Horizon 5/6** always send a single fixed 324-byte packet: the
+//!   same 232-byte Sled prefix, then **`CarGroup`/`SmashableVelDiff`/
+//!   `SmashableMass`** (fields Motorsport doesn't send), *then* the same
+//!   Position/Speed/.../Gear block -- but Horizon does **not** send
+//!   `TireWear*`/`TrackOrdinal` (fields Motorsport does send). So the
+//!   Position/Speed/etc. block sits at a different byte offset per title.
+//!
+//! The Sled prefix itself (RPM, velocity, car ids -- everything the LED
+//! shift-light output needs) is byte-identical across both titles and
+//! unaffected by this split, since the divergence only starts after it.
+//!
+//! Packet length reliably tells the two apart: Horizon's Dash is always
+//! exactly 324 bytes, while Motorsport's is always >= 331 (base fields +
+//! TireWear + TrackOrdinal) -- well clear of 324. See `parse` below.
 
 const SLED_LEN: usize = 232;
-const DASH_LEN: usize = 311; // SLED_LEN + Dash-specific fields
-const DASH_TIRE_WEAR_LEN: usize = DASH_LEN + 16; // + 4 speculative trailing f32 fields
+
+/// Length of the Position..NormalizedAIBrakeDifference block shared by both
+/// titles' Dash format, once you're at the right starting offset for each.
+const DASH_TAIL_LEN: usize = 79;
+
+/// Forza Horizon 5/6: fixed total packet size (confirmed by FH6's docs:
+/// "Total packet size: 324 bytes").
+const FH_DASH_LEN: usize = 324;
+/// Forza Horizon 5/6: the 3 extra fields (CarGroup, SmashableVelDiff,
+/// SmashableMass) sit right after the Sled prefix, before the shared tail.
+const FH_TAIL_OFFSET: usize = SLED_LEN + 12;
+
+/// Forza Motorsport: shared tail starts immediately after the Sled prefix.
+const FM_TAIL_OFFSET: usize = SLED_LEN;
+/// Forza Motorsport: where TireWear starts, right after the shared tail.
+const FM_TIRE_WEAR_OFFSET: usize = SLED_LEN + DASH_TAIL_LEN; // 311
+/// Forza Motorsport: where TrackOrdinal starts, right after TireWear.
+const FM_TRACK_ORDINAL_OFFSET: usize = FM_TIRE_WEAR_OFFSET + 16; // 327
+/// Forza Motorsport: minimum full Dash packet size (Sled + tail + TireWear +
+/// TrackOrdinal). The docs don't state whether the wire format adds trailing
+/// alignment padding (Horizon's does, by 1 byte), so this is a lower bound
+/// checked with `>=`, not an exact size.
+const FM_DASH_MIN_LEN: usize = FM_TRACK_ORDINAL_OFFSET + 4; // 331
 
 fn f32_at(buf: &[u8], offset: usize) -> f32 {
     f32::from_le_bytes(buf[offset..offset + 4].try_into().unwrap())
@@ -33,7 +65,9 @@ fn u16_at(buf: &[u8], offset: usize) -> u16 {
     u16::from_le_bytes(buf[offset..offset + 2].try_into().unwrap())
 }
 
-/// Fields present in every Data Out packet regardless of format.
+/// Fields present in every Data Out packet regardless of format -- the
+/// Sled prefix. Byte-identical across Forza Horizon 5/6 and Forza
+/// Motorsport.
 #[derive(Debug, Clone, Default)]
 pub struct SledData {
     pub is_race_on: bool,
@@ -49,10 +83,30 @@ pub struct SledData {
     pub num_cylinders: i32,
 }
 
-/// Present only when the game is configured to send the Dash (or Car Dash)
-/// format, i.e. the packet is at least `DASH_LEN` bytes.
+fn parse_sled(buf: &[u8]) -> SledData {
+    SledData {
+        is_race_on: i32_at(buf, 0) != 0,
+        timestamp_ms: u32_at(buf, 4),
+        engine_max_rpm: f32_at(buf, 8),
+        engine_idle_rpm: f32_at(buf, 12),
+        current_engine_rpm: f32_at(buf, 16),
+        velocity: [f32_at(buf, 32), f32_at(buf, 36), f32_at(buf, 40)],
+        car_ordinal: i32_at(buf, 212),
+        car_class: i32_at(buf, 216),
+        car_performance_index: i32_at(buf, 220),
+        drivetrain_type: i32_at(buf, 224),
+        num_cylinders: i32_at(buf, 228),
+    }
+}
+
+/// The Position/Speed/.../Gear block shared by both titles' Dash format
+/// (`docs/telemetry-protocol-forza.md` has the field-by-field offsets).
+/// `Gear`'s exact Reverse/Neutral convention isn't specified by Forza's own
+/// docs -- treat it as a raw value, see that doc's note before assuming a
+/// transform.
 #[derive(Debug, Clone, Default)]
 pub struct DashData {
+    pub position: [f32; 3],
     pub speed_mps: f32,
     pub power_watts: f32,
     pub torque_nm: f32,
@@ -76,9 +130,40 @@ pub struct DashData {
     pub normalized_ai_brake_difference: i8,
 }
 
-/// Speculative trailing extension -- see module docs. Only populated when
-/// the packet is long enough; absence doesn't mean the game didn't send it,
-/// it may just live at a different offset than guessed here.
+/// Parses the shared 79-byte Dash tail starting at `off`, which is a
+/// *different* absolute offset per title -- see the module docs.
+fn parse_dash_tail(buf: &[u8], off: usize) -> DashData {
+    DashData {
+        position: [f32_at(buf, off), f32_at(buf, off + 4), f32_at(buf, off + 8)],
+        speed_mps: f32_at(buf, off + 12),
+        power_watts: f32_at(buf, off + 16),
+        torque_nm: f32_at(buf, off + 20),
+        tire_temp: [
+            f32_at(buf, off + 24),
+            f32_at(buf, off + 28),
+            f32_at(buf, off + 32),
+            f32_at(buf, off + 36),
+        ],
+        boost: f32_at(buf, off + 40),
+        fuel: f32_at(buf, off + 44),
+        distance_traveled_m: f32_at(buf, off + 48),
+        best_lap_s: f32_at(buf, off + 52),
+        last_lap_s: f32_at(buf, off + 56),
+        current_lap_s: f32_at(buf, off + 60),
+        current_race_time_s: f32_at(buf, off + 64),
+        lap_number: u16_at(buf, off + 68),
+        race_position: buf[off + 70],
+        accel: buf[off + 71],
+        brake: buf[off + 72],
+        clutch: buf[off + 73],
+        hand_brake: buf[off + 74],
+        gear: buf[off + 75],
+        steer: buf[off + 76] as i8,
+        normalized_driving_line: buf[off + 77] as i8,
+        normalized_ai_brake_difference: buf[off + 78] as i8,
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct TireWearExt {
     pub front_left: f32,
@@ -87,76 +172,93 @@ pub struct TireWearExt {
     pub rear_right: f32,
 }
 
+/// Fields that exist in exactly one title's Dash format, per Forza's docs.
+#[derive(Debug, Clone)]
+pub enum TitleExtras {
+    /// Packet was Sled-only -- neither title's extra fields are present.
+    None,
+    /// Forza Horizon 5/6-only fields.
+    Horizon {
+        car_group: u32,
+        smashable_vel_diff: f32,
+        smashable_mass: f32,
+    },
+    /// Forza Motorsport-only fields.
+    Motorsport {
+        tire_wear: TireWearExt,
+        track_ordinal: i32,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub struct ForzaPacket {
     pub sled: SledData,
     pub dash: Option<DashData>,
-    pub tire_wear: Option<TireWearExt>,
+    pub extras: TitleExtras,
 }
 
-/// Parse a raw UDP payload from Forza's Data Out feature.
-///
-/// Returns `None` if the buffer is shorter than the minimum Sled packet
-/// size (i.e. clearly not a Data Out packet).
+/// Parse a raw UDP payload from Forza's Data Out feature. Returns `None` if
+/// the buffer is shorter than the minimum Sled packet size.
 pub fn parse(buf: &[u8]) -> Option<ForzaPacket> {
     if buf.len() < SLED_LEN {
         return None;
     }
+    let sled = parse_sled(buf);
 
-    let sled = SledData {
-        is_race_on: i32_at(buf, 0) != 0,
-        timestamp_ms: u32_at(buf, 4),
-        engine_max_rpm: f32_at(buf, 8),
-        engine_idle_rpm: f32_at(buf, 12),
-        current_engine_rpm: f32_at(buf, 16),
-        velocity: [f32_at(buf, 32), f32_at(buf, 36), f32_at(buf, 40)],
-        car_ordinal: i32_at(buf, 212),
-        car_class: i32_at(buf, 216),
-        car_performance_index: i32_at(buf, 220),
-        drivetrain_type: i32_at(buf, 224),
-        num_cylinders: i32_at(buf, 228),
-    };
+    // Check Motorsport's (longer) size first -- its minimum, 331 bytes, is
+    // safely past Horizon's fixed 324, so there's no overlap to worry
+    // about between the two `>=` checks below.
+    if buf.len() >= FM_DASH_MIN_LEN {
+        let dash = parse_dash_tail(buf, FM_TAIL_OFFSET);
+        let tire_wear = TireWearExt {
+            front_left: f32_at(buf, FM_TIRE_WEAR_OFFSET),
+            front_right: f32_at(buf, FM_TIRE_WEAR_OFFSET + 4),
+            rear_left: f32_at(buf, FM_TIRE_WEAR_OFFSET + 8),
+            rear_right: f32_at(buf, FM_TIRE_WEAR_OFFSET + 12),
+        };
+        let track_ordinal = i32_at(buf, FM_TRACK_ORDINAL_OFFSET);
+        return Some(ForzaPacket {
+            sled,
+            dash: Some(dash),
+            extras: TitleExtras::Motorsport {
+                tire_wear,
+                track_ordinal,
+            },
+        });
+    }
 
-    let dash = (buf.len() >= DASH_LEN).then(|| DashData {
-        speed_mps: f32_at(buf, 244),
-        power_watts: f32_at(buf, 248),
-        torque_nm: f32_at(buf, 252),
-        tire_temp: [
-            f32_at(buf, 256),
-            f32_at(buf, 260),
-            f32_at(buf, 264),
-            f32_at(buf, 268),
-        ],
-        boost: f32_at(buf, 272),
-        fuel: f32_at(buf, 276),
-        distance_traveled_m: f32_at(buf, 280),
-        best_lap_s: f32_at(buf, 284),
-        last_lap_s: f32_at(buf, 288),
-        current_lap_s: f32_at(buf, 292),
-        current_race_time_s: f32_at(buf, 296),
-        lap_number: u16_at(buf, 300),
-        race_position: buf[302],
-        accel: buf[303],
-        brake: buf[304],
-        clutch: buf[305],
-        hand_brake: buf[306],
-        gear: buf[307],
-        steer: buf[308] as i8,
-        normalized_driving_line: buf[309] as i8,
-        normalized_ai_brake_difference: buf[310] as i8,
-    });
+    if buf.len() >= FH_DASH_LEN {
+        let car_group = u32_at(buf, SLED_LEN);
+        let smashable_vel_diff = f32_at(buf, SLED_LEN + 4);
+        let smashable_mass = f32_at(buf, SLED_LEN + 8);
+        let dash = parse_dash_tail(buf, FH_TAIL_OFFSET);
+        return Some(ForzaPacket {
+            sled,
+            dash: Some(dash),
+            extras: TitleExtras::Horizon {
+                car_group,
+                smashable_vel_diff,
+                smashable_mass,
+            },
+        });
+    }
 
-    let tire_wear = (buf.len() >= DASH_TIRE_WEAR_LEN).then(|| TireWearExt {
-        front_left: f32_at(buf, DASH_LEN),
-        front_right: f32_at(buf, DASH_LEN + 4),
-        rear_left: f32_at(buf, DASH_LEN + 8),
-        rear_right: f32_at(buf, DASH_LEN + 12),
-    });
+    if buf.len() >= SLED_LEN + DASH_TAIL_LEN {
+        // 311 bytes: Motorsport's shared tail without TireWear/TrackOrdinal.
+        // Not a documented standalone wire format, but parsed defensively
+        // in case a future/older build trims those fields.
+        let dash = parse_dash_tail(buf, FM_TAIL_OFFSET);
+        return Some(ForzaPacket {
+            sled,
+            dash: Some(dash),
+            extras: TitleExtras::None,
+        });
+    }
 
     Some(ForzaPacket {
         sled,
-        dash,
-        tire_wear,
+        dash: None,
+        extras: TitleExtras::None,
     })
 }
 
@@ -174,6 +276,29 @@ impl ForzaPacket {
             "car_performance_index".to_string(),
             self.sled.car_performance_index as f32,
         );
+
+        match &self.extras {
+            TitleExtras::Horizon {
+                car_group,
+                smashable_vel_diff,
+                smashable_mass,
+            } => {
+                extra.insert("car_group".to_string(), *car_group as f32);
+                extra.insert("smashable_vel_diff".to_string(), *smashable_vel_diff);
+                extra.insert("smashable_mass".to_string(), *smashable_mass);
+            }
+            TitleExtras::Motorsport {
+                tire_wear,
+                track_ordinal,
+            } => {
+                extra.insert("tire_wear_fl".to_string(), tire_wear.front_left);
+                extra.insert("tire_wear_fr".to_string(), tire_wear.front_right);
+                extra.insert("tire_wear_rl".to_string(), tire_wear.rear_left);
+                extra.insert("tire_wear_rr".to_string(), tire_wear.rear_right);
+                extra.insert("track_ordinal".to_string(), *track_ordinal as f32);
+            }
+            TitleExtras::None => {}
+        }
 
         let (speed_mps, throttle, brake, clutch, steer, gear, fuel, lap, lap_time_s, position) =
             if let Some(d) = &self.dash {
@@ -206,13 +331,6 @@ impl ForzaPacket {
                 (speed, 0.0, 0.0, 0.0, 0.0, 0, None, None, None, None)
             };
 
-        if let Some(tw) = &self.tire_wear {
-            extra.insert("tire_wear_fl".to_string(), tw.front_left);
-            extra.insert("tire_wear_fr".to_string(), tw.front_right);
-            extra.insert("tire_wear_rl".to_string(), tw.rear_left);
-            extra.insert("tire_wear_rr".to_string(), tw.rear_right);
-        }
-
         TelemetryFrame {
             source: "forza".to_string(),
             game: Some(game.to_string()),
@@ -235,6 +353,71 @@ impl ForzaPacket {
             lap_time_s,
             position,
             extra,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_sled_only_packet() {
+        let mut buf = vec![0u8; SLED_LEN];
+        buf[0..4].copy_from_slice(&1i32.to_le_bytes()); // IsRaceOn
+        buf[8..12].copy_from_slice(&7000.0f32.to_le_bytes()); // EngineMaxRpm
+        buf[12..16].copy_from_slice(&1000.0f32.to_le_bytes()); // EngineIdleRpm
+        buf[16..20].copy_from_slice(&4500.0f32.to_le_bytes()); // CurrentEngineRpm
+
+        let pkt = parse(&buf).expect("should parse");
+        assert!(pkt.sled.is_race_on);
+        assert_eq!(pkt.sled.engine_max_rpm, 7000.0);
+        assert_eq!(pkt.sled.engine_idle_rpm, 1000.0);
+        assert_eq!(pkt.sled.current_engine_rpm, 4500.0);
+        assert!(pkt.dash.is_none());
+    }
+
+    #[test]
+    fn parses_horizon_fixed_dash_packet() {
+        let mut buf = vec![0u8; FH_DASH_LEN];
+        buf[16..20].copy_from_slice(&5500.0f32.to_le_bytes()); // CurrentEngineRpm
+        buf[SLED_LEN..SLED_LEN + 4].copy_from_slice(&42u32.to_le_bytes()); // CarGroup
+        let tail = FH_TAIL_OFFSET;
+        buf[tail + 12..tail + 16].copy_from_slice(&55.0f32.to_le_bytes()); // Speed
+        buf[tail + 75] = 3; // Gear
+
+        let pkt = parse(&buf).expect("should parse");
+        assert_eq!(pkt.sled.current_engine_rpm, 5500.0);
+        let dash = pkt.dash.expect("dash present");
+        assert_eq!(dash.speed_mps, 55.0);
+        assert_eq!(dash.gear, 3);
+        match pkt.extras {
+            TitleExtras::Horizon { car_group, .. } => assert_eq!(car_group, 42),
+            _ => panic!("expected Horizon extras"),
+        }
+    }
+
+    #[test]
+    fn parses_motorsport_dash_packet_with_tire_wear_and_track_ordinal() {
+        let mut buf = vec![0u8; FM_DASH_MIN_LEN];
+        let tail = FM_TAIL_OFFSET;
+        buf[tail + 12..tail + 16].copy_from_slice(&40.0f32.to_le_bytes()); // Speed
+        buf[FM_TIRE_WEAR_OFFSET..FM_TIRE_WEAR_OFFSET + 4].copy_from_slice(&0.2f32.to_le_bytes());
+        buf[FM_TRACK_ORDINAL_OFFSET..FM_TRACK_ORDINAL_OFFSET + 4]
+            .copy_from_slice(&9i32.to_le_bytes());
+
+        let pkt = parse(&buf).expect("should parse");
+        let dash = pkt.dash.expect("dash present");
+        assert_eq!(dash.speed_mps, 40.0);
+        match pkt.extras {
+            TitleExtras::Motorsport {
+                tire_wear,
+                track_ordinal,
+            } => {
+                assert_eq!(tire_wear.front_left, 0.2);
+                assert_eq!(track_ordinal, 9);
+            }
+            _ => panic!("expected Motorsport extras"),
         }
     }
 }

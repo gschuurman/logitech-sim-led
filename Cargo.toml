@@ -4,7 +4,6 @@ members = [
     "crates/sld-core",
     "crates/sld-sources/forza",
     "crates/sld-outputs/logitech-hid",
-    "crates/sld-outputs/aux-display",
     "crates/sld-service",
     "crates/sld-cli",
 ]
