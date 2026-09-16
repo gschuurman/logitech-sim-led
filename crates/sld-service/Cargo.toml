@@ -52,7 +52,7 @@ tracing-appender = { version = "0.2", optional = true }
 dirs = { version = "5", optional = true }
 
 [target.'cfg(windows)'.dependencies]
-winreg = "0.52"
+winreg = "0.56"
 
 [build-dependencies]
 winresource = "0.1"
