@@ -78,7 +78,7 @@ jobs:
           7z a "${out}.zip" "$out" > /dev/null
           echo "ASSET_PATH=${out}.zip" >> "$GITHUB_ENV"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: logitech-sim-led-${{ matrix.target }}
           path: ${{ env.ASSET_PATH }}
@@ -115,7 +115,7 @@ jobs:
             -d RepoRoot=. `
             -o $out
           echo "MSI_PATH=$out" | Out-File -FilePath $env:GITHUB_ENV -Append
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: logitech-sim-led-installer-windows
           path: ${{ env.MSI_PATH }}
@@ -159,7 +159,7 @@ jobs:
             --install-location / \
             "$out"
           echo "PKG_PATH=$out" >> "$GITHUB_ENV"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: logitech-sim-led-installer-macos-${{ matrix.target }}
           path: ${{ env.PKG_PATH }}
@@ -199,7 +199,7 @@ jobs:
           out="logitech-sim-led-${GITHUB_REF_NAME}-amd64.deb"
           dpkg-deb --build --root-owner-group debroot "$out"
           echo "DEB_PATH=$out" >> "$GITHUB_ENV"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: logitech-sim-led-installer-linux
           path: ${{ env.DEB_PATH }}
@@ -239,7 +239,7 @@ jobs:
             --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo \
             repo "$out" io.github.gschuurman.logitech_sim_led
           echo "FLATPAK_PATH=$out" >> "$GITHUB_ENV"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: logitech-sim-led-installer-steamos
           path: ${{ env.FLATPAK_PATH }}
@@ -260,7 +260,7 @@ jobs:
     if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
