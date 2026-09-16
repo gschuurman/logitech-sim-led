@@ -3,41 +3,152 @@
 <head>
 <meta charset="utf-8">
 <title>logitech-sim-led</title>
+<link rel="icon" type="image/png" href="/favicon.png">
 <style>
-  body { font-family: system-ui, sans-serif; background: #111; color: #eee; margin: 2rem; }
-  h1 { font-size: 1.1rem; color: #888; font-weight: normal; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; max-width: 800px; }
-  .tile { background: #1c1c1c; border-radius: 8px; padding: 1rem; }
-  .tile .label { font-size: 0.75rem; color: #888; text-transform: uppercase; }
-  .tile .value { font-size: 1.8rem; margin-top: 0.25rem; }
-  #status { color: #888; font-size: 0.8rem; margin-bottom: 1rem; }
+  :root {
+    --bg: #0d0e12;
+    --panel: #16181d;
+    --panel-border: #23262e;
+    --text: #e8e9ec;
+    --muted: #8b8f9a;
+    --accent: #4ade60;
+    --danger: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    margin: 0;
+    padding: 2rem;
+    min-height: 100vh;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    margin-bottom: 1.75rem;
+  }
+  header img { width: 40px; height: 40px; border-radius: 10px; }
+  header h1 { font-size: 1.15rem; font-weight: 600; margin: 0; }
+  header .sub { font-size: 0.78rem; color: var(--muted); margin-top: 0.15rem; }
+  #status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-bottom: 1.25rem;
+  }
+  #status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  #status.connected .dot { background: var(--accent); }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.9rem;
+    max-width: 820px;
+  }
+  .tile {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+  }
+  .tile .label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .tile .value { font-size: 1.7rem; margin-top: 0.3rem; font-variant-numeric: tabular-nums; }
+  .panel {
+    max-width: 820px;
+    margin-top: 1.5rem;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 1.1rem 1.25rem;
+  }
+  .panel h2 { font-size: 0.85rem; font-weight: 600; margin: 0 0 0.6rem; }
+  .panel p { font-size: 0.8rem; color: var(--muted); margin: 0 0 0.9rem; }
+  button {
+    background: var(--accent);
+    color: #0d1a10;
+    border: none;
+    border-radius: 8px;
+    padding: 0.55rem 1.1rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.6; cursor: default; }
+  button:hover:not(:disabled) { filter: brightness(1.08); }
+  #ledResult { margin-top: 0.7rem; font-size: 0.8rem; min-height: 1.1em; }
+  #ledResult.ok { color: var(--accent); }
+  #ledResult.err { color: var(--danger); }
 </style>
 </head>
 <body>
-<h1>logitech-sim-led -- live telemetry</h1>
-<div id="status">connecting...</div>
+<header>
+  <img src="/logo.png" alt="">
+  <div>
+    <h1>logitech-sim-led</h1>
+    <div class="sub">live telemetry &amp; RPM shift-light</div>
+  </div>
+</header>
+
+<div id="status"><span class="dot"></span><span id="statusText">connecting&hellip;</span></div>
+
 <div class="grid">
-  <div class="tile"><div class="label">Source</div><div class="value" id="source">-</div></div>
-  <div class="tile"><div class="label">RPM</div><div class="value" id="rpm">-</div></div>
-  <div class="tile"><div class="label">Speed (km/h)</div><div class="value" id="speed">-</div></div>
-  <div class="tile"><div class="label">Gear</div><div class="value" id="gear">-</div></div>
+  <div class="tile"><div class="label">Source</div><div class="value" id="source">&ndash;</div></div>
+  <div class="tile"><div class="label">RPM</div><div class="value" id="rpm">&ndash;</div></div>
+  <div class="tile"><div class="label">Speed (km/h)</div><div class="value" id="speed">&ndash;</div></div>
+  <div class="tile"><div class="label">Gear</div><div class="value" id="gear">&ndash;</div></div>
 </div>
+
+<div class="panel">
+  <h2>Wheel LEDs</h2>
+  <p>Finds a supported wheel and flashes its RPM shift-light bar, independent of any game or telemetry.</p>
+  <button id="testLedsBtn">Test LEDs</button>
+  <div id="ledResult"></div>
+</div>
+
 <script>
-  const status = document.getElementById('status');
+  const statusEl = document.getElementById('status');
+  const statusText = document.getElementById('statusText');
+
   function connect() {
     const ws = new WebSocket(`ws://${location.host}/ws`);
-    ws.onopen = () => status.textContent = 'connected';
-    ws.onclose = () => { status.textContent = 'disconnected, retrying...'; setTimeout(connect, 1000); };
+    ws.onopen = () => { statusEl.classList.add('connected'); statusText.textContent = 'connected'; };
+    ws.onclose = () => {
+      statusEl.classList.remove('connected');
+      statusText.textContent = 'disconnected, retrying…';
+      setTimeout(connect, 1000);
+    };
     ws.onerror = () => ws.close();
     ws.onmessage = (evt) => {
       const f = JSON.parse(evt.data);
-      document.getElementById('source').textContent = f.game || f.source || '-';
+      document.getElementById('source').textContent = f.game || f.source || '–';
       document.getElementById('rpm').textContent = Math.round(f.rpm) + ' / ' + Math.round(f.rpm_max);
       document.getElementById('speed').textContent = (f.speed_mps * 3.6).toFixed(0);
       document.getElementById('gear').textContent = f.gear;
     };
   }
   connect();
+
+  const btn = document.getElementById('testLedsBtn');
+  const result = document.getElementById('ledResult');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    result.className = '';
+    result.textContent = 'Flashing…';
+    try {
+      const res = await fetch('/api/test-leds', { method: 'POST' });
+      const data = await res.json();
+      result.className = data.ok ? 'ok' : 'err';
+      result.textContent = data.message;
+    } catch (e) {
+      result.className = 'err';
+      result.textContent = 'Request failed: ' + e;
+    } finally {
+      btn.disabled = false;
+    }
+  });
 </script>
 </body>
 </html>

@@ -1,5 +1,8 @@
 /target/
 *.pdb
+*.msi
+*.wixpdb
+/.wix/
 
 # PlatformIO
 firmware/**/.pio/

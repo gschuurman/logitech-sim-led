@@ -9,15 +9,23 @@ name = "sld-service"
 path = "src/main.rs"
 
 [features]
-# Local web UI (status + live telemetry over a websocket) is on by default
-# since it's the primary way to see the service is doing something while
-# it's running headless.
-default = ["web"]
+# `web` (the axum server behind the dashboard) and `gui` (native window +
+# tray, replacing the bare console app) are both on by default -- this is
+# meant to run as a normal desktop app, not a headless service. Build with
+# `--no-default-features --features web` for the old console/service-
+# manager-friendly behavior (e.g. running under systemd, where a window
+# and tray icon make no sense).
+default = ["web", "gui"]
 web = ["dep:axum"]
-# System tray icon integration. Off by default: it requires running a
-# native event loop (tao) on the main thread instead of #[tokio::main], and
-# is shipped here only as a scaffold -- see src/tray.rs before enabling.
-tray = ["dep:tray-icon", "dep:tao"]
+gui = [
+    "dep:tray-icon",
+    "dep:tao",
+    "dep:wry",
+    "dep:rfd",
+    "dep:image",
+    "dep:tracing-appender",
+    "dep:dirs",
+]
 
 [dependencies]
 sld-core = { path = "../sld-core" }
@@ -33,3 +41,18 @@ tracing-subscriber = { workspace = true }
 axum = { version = "0.7", features = ["ws"], optional = true }
 tray-icon = { version = "0.19", optional = true }
 tao = { version = "0.30", optional = true }
+wry = { version = "0.47", optional = true, default-features = false, features = [
+    "os-webview",
+] }
+rfd = { version = "0.15", optional = true }
+image = { version = "0.25", optional = true, default-features = false, features = [
+    "png",
+] }
+tracing-appender = { version = "0.2", optional = true }
+dirs = { version = "5", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+
+[build-dependencies]
+winresource = "0.1"

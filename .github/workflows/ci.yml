@@ -27,14 +27,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Linux build deps
-        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+        # libudev-dev: hidapi. The rest: sld-service's `gui` feature (on by
+        # default) -- tao/tray-icon/wry need a GTK+WebKit event loop and
+        # tray backend on Linux; see docs/architecture.md.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev libgtk-3-dev libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      # Default features only -- the optional `tray` feature on sld-service
-      # needs system GTK dev packages (see crates/sld-service/src/tray.rs)
-      # and isn't wired into main() yet.
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
   test:
@@ -47,7 +50,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Linux build deps
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev libgtk-3-dev libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:

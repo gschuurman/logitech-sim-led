@@ -18,6 +18,17 @@
 #
 # Built by .github/workflows/release.yml on every v*.*.* tag; see
 # docs/installers.md for install/uninstall instructions.
+# TODO(gui): sld-service's `gui` feature (on by default as of the native
+# tray/window rewrite -- see docs/architecture.md) needs GTK3 and
+# WebKitGTK at runtime (tao/tray-icon/wry), neither of which the bare
+# org.freedesktop.Platform runtime below provides. This manifest hasn't
+# been updated for that yet -- building against `org.freedesktop.Platform`
+# with `--no-default-features --features web` (console/no-tray build) is
+# the known-working fallback until this is sorted out; probably means
+# switching to `org.gnome.Platform` (bundles both), unverified as of this
+# writing since this project's SteamOS-specific work has, per
+# docs/installers.md, always been validated after the fact against a real
+# Steam Deck/SteamOS box, not in this development environment.
 app-id: io.github.gschuurman.logitech_sim_led
 runtime: org.freedesktop.Platform
 runtime-version: "24.08"
@@ -45,7 +56,11 @@ modules:
   - name: logitech-sim-led
     buildsystem: simple
     build-commands:
-      - cargo build --release -p sld-service -p sld-cli
+      # --no-default-features --features web: see the TODO above the
+      # app-id -- the default `gui` feature needs GTK3/WebKitGTK this
+      # runtime doesn't provide, so this builds the console/web-UI-only
+      # shape instead of failing outright.
+      - cargo build --release --no-default-features --features web -p sld-service -p sld-cli
       - install -Dm755 target/release/sld-service /app/bin/sld-service
       - install -Dm755 target/release/sld-cli /app/bin/sld-cli
       - install -Dm644 config/default.toml /app/etc/logitech-sim-led/default.toml

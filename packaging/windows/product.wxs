@@ -28,6 +28,9 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
+    <Icon Id="AppIcon" SourceFile="$(var.RepoRoot)\crates\sld-service\assets\icons\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="logitech-sim-led">
         <Directory Id="ConfigFolder" Name="config" />
@@ -72,10 +75,36 @@
                 Name="logitech-sim-led"
                 Description="Run the logitech-sim-led telemetry/LED service"
                 Target="[INSTALLFOLDER]sld-service.exe"
-                WorkingDirectory="INSTALLFOLDER" />
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="AppIcon" />
       <RemoveFolder Id="RemoveApplicationProgramsFolder" Directory="ApplicationProgramsFolder" On="uninstall" />
-      <RegistryValue Root="HKCU" Key="Software\logitech-sim-led" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      <!--
+        Per-machine package (ProgramFiles64Folder above), so this keypath
+        must be HKLM, not HKCU: a component whose only keypath is an HKCU
+        registry value is unreliable in a per-machine install (MSI may
+        advertise it instead of writing it immediately, depending on who's
+        installing and how). Confirmed the hard way: this shortcut
+        silently never appeared with HKCU here.
+      -->
+      <RegistryValue Root="HKLM" Key="Software\logitech-sim-led" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
     </Component>
+
+    <!--
+      TODO(installer wizard): `UIRef Id="WixUI_InstallDir"` (from
+      WixToolset.UI.wixext 5.0.2, loaded with `-ext WixToolset.UI.wixext`)
+      resolves but fails with WIX0094 "inaccessible due to its protection
+      level", which looks like a packaging quirk specific to this
+      extension version rather than a syntax error (UIRef/Property/
+      WixVariable structure was confirmed correct against the extension
+      DLL's own WIXUI_INSTALLDIR property name). Revisit once the
+      packaging rewrite for the GUI app (see main.rs/gui.rs) replaces
+      this file anyway: new exe, new icon, new shortcuts, worth
+      re-deriving the UI wiring fresh rather than patching this cut
+      further. Until then this MSI installs non-interactively only
+      (msiexec /qn or /qb): no Welcome/License/browse-for-folder/Finish
+      wizard, no /qf default UI.
+      license.rtf in this directory is ready for whenever this is fixed.
+    -->
 
   </Package>
 </Wix>

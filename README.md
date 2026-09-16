@@ -30,9 +30,9 @@ before assuming something works out of the box.
 
 The workspace builds clean and passes `cargo test`/`clippy -D warnings`/
 `fmt --check` (enforced by [CI](.github/workflows/ci.yml) on Linux, Windows,
-and macOS) with default features. The `tray` feature is excluded from CI
-because it needs system GTK dev packages on Linux -- see
-[`crates/sld-service/src/tray.rs`](crates/sld-service/src/tray.rs).
+and macOS) with default features, which include the native tray/window GUI
+(`gui` feature -- see [docs/architecture.md](docs/architecture.md)); CI
+installs the GTK/WebKit dev packages it needs on Linux.
 
 ## Layout
 
@@ -65,8 +65,16 @@ cargo build --workspace
    ```
    cargo run -p sld-service
    ```
-4. Open <http://127.0.0.1:5301> for a minimal live-telemetry page (the
-   `web` feature, on by default).
+   This opens a native window (and adds a system tray icon) with the live
+   dashboard, on by default (`gui` feature). For the old headless
+   console/service-manager shape instead, with no window or tray:
+   ```
+   cargo run -p sld-service --no-default-features --features web
+   ```
+4. The dashboard (also reachable directly at <http://127.0.0.1:5301>) shows
+   live telemetry and has a "Test LEDs" button that flashes the wheel
+   independent of any game. The tray menu has its own "Test LEDs" item
+   too, plus "Start with Windows" (Windows only so far) and "Quit".
 
 ## Dev tools
 

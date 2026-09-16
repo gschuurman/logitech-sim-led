@@ -7,8 +7,8 @@
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::response::{Html, IntoResponse};
-use axum::routing::get;
-use axum::Router;
+use axum::routing::{get, post};
+use axum::{Json, Router};
 use sld_core::shutdown::ShutdownSignal;
 use sld_core::telemetry::TelemetryFrame;
 use sld_core::traits::TelemetryRx;
@@ -39,6 +39,9 @@ pub async fn serve(
     let app = Router::new()
         .route("/", get(index))
         .route("/ws", get(ws_handler))
+        .route("/api/test-leds", post(test_leds_handler))
+        .route("/favicon.png", get(favicon))
+        .route("/logo.png", get(logo))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
@@ -72,6 +75,39 @@ async fn forward_frames(
 
 async fn index() -> Html<&'static str> {
     Html(include_str!("../assets/index.html"))
+}
+
+async fn favicon() -> impl IntoResponse {
+    (
+        [("content-type", "image/png")],
+        include_bytes!("../assets/icons/icon-32.png").as_slice(),
+    )
+}
+
+async fn logo() -> impl IntoResponse {
+    (
+        [("content-type", "image/png")],
+        include_bytes!("../assets/icons/icon-128.png").as_slice(),
+    )
+}
+
+/// Finds, opens, and briefly flashes a wheel's LEDs -- same code path as
+/// `sld-cli test-leds` (see `sld-output-logitech-hid::device::test_leds`
+/// and docs/led-hid-protocol.md for why this is the right way to poke at
+/// the wheel rather than a hand-rolled write here). Runs on a blocking
+/// thread since it does synchronous HID I/O plus a ~1.6s sleep to make the
+/// flash actually visible.
+async fn test_leds_handler() -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(sld_output_logitech_hid::test_leds).await;
+    let body = match result {
+        Ok(Ok(protocol)) => serde_json::json!({
+            "ok": true,
+            "message": format!("LEDs flashed (protocol '{protocol}')"),
+        }),
+        Ok(Err(e)) => serde_json::json!({ "ok": false, "message": e.to_string() }),
+        Err(e) => serde_json::json!({ "ok": false, "message": format!("task panicked: {e}") }),
+    };
+    Json(body)
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl IntoResponse {

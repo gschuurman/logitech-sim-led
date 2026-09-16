@@ -66,7 +66,7 @@ crates/
   sld-outputs/
     logitech-hid/               RPM LED output over raw USB HID
     (future: a second display, an OBS overlay, ...)
-  sld-service/                  the daemon: config, wiring, web UI, tray scaffold
+  sld-service/                  the daemon: config, wiring, web UI, native tray/window GUI
   sld-cli/                      dev/debug tooling (HID list, packet capture)
 docs/                          this file and friends
 config/
@@ -118,14 +118,19 @@ background service):
 - **`tokio`** async runtime for the service, since it's fundamentally I/O
   fan-in/fan-out (many UDP packets in, several device writes out) with
   cooperative shutdown -- a natural fit for `select!`/channels.
-- **Headless service + local web UI, with a tray-icon scaffold** as the app
-  shape: this is meant to run in the background while you play, not be a
-  foreground app you interact with. The web UI (`sld-service/src/web.rs`,
-  on by default) gives a live status view without needing native GUI work;
-  the tray icon (`sld-service/src/tray.rs`) is scaffolded but not wired in
-  yet because it needs a main-thread native event loop that doesn't mesh
-  trivially with `#[tokio::main]` -- see that file's doc comment for
-  exactly what's left.
+- **Native tray app wrapping the same web UI**, not a headless console
+  process, as the app shape: this is meant to run in the background while
+  you play, with the dashboard as an actual window rather than "go open
+  your browser". `sld-service/src/gui.rs` owns the main OS thread's `tao`
+  event loop (tray icon + a `wry` webview window pointed at the same
+  `web.rs` axum server every dashboard client talks to); the async
+  service itself (telemetry sources, LED output, that axum server) runs
+  on a `tokio::runtime::Runtime` driven from a background thread, since
+  `tao`/`wry` need the main thread and don't mesh with `#[tokio::main]`
+  owning it instead. `--no-default-features --features web` builds the
+  old plain console/service-manager-friendly shape (Ctrl-C to stop, no
+  window/tray) for environments where those make no sense, e.g. under
+  systemd.
 
 ## What's genuinely done vs. foundation-only
 
@@ -140,8 +145,8 @@ reverse-engineering:
 | Forza Dash parsing (speed, gear, pedals, fuel, lap, tire wear/temps) | Verified against the same official docs, including the real structural difference between Horizon's and Motorsport's layouts (see docs/telemetry-protocol-forza.md) -- covered by unit tests in `sld-sources/forza/src/packet.rs`. `Gear`'s Reverse/Neutral convention specifically is *not* defined by Forza's docs, so it's exposed as a raw value. |
 | G27/G29/G923 LED HID protocol | Verified against the actively-maintained `berarma/new-lg4ff` Linux driver source, including the G923 PlayStation-mode-switch handshake -- see docs/led-hid-protocol.md. G923 Xbox-mode is an inference, not driver-confirmed. |
 | G920/Driving Force GT LED HID protocol | Not implemented -- the reference driver doesn't register LED support for these either, so rather than guess, the service now reports "found this wheel, but its LED protocol isn't implemented" instead of silently doing nothing. |
-| Web UI | Working minimal live-telemetry page. |
-| Tray icon | Scaffolded, not wired into `main()` -- see tray.rs. |
+| Web UI | Working live-telemetry dashboard, plus a "Test LEDs" button (`/api/test-leds`) that drives the wheel independent of any game. |
+| Native GUI / tray | Wired in and default-on -- see gui.rs. "Start with Windows" is Windows-only so far (per-user registry Run key); Linux/macOS autostart (XDG `.desktop` / `LaunchAgents`) isn't implemented, see autostart.rs. |
 
 A second output (e.g. an auxiliary/second display) isn't built yet -- see
 docs/adding-an-output.md for the shape it would take when it's needed.
@@ -158,8 +163,14 @@ docs/adding-an-output.md for the shape it would take when it's needed.
 - Verify against real hardware: the G923 Xbox-mode inference, and whether
   G920/DFGT support can be added at all (needs a packet capture, since the
   reference driver has none).
-- Wire the tray icon into `main()` (see tray.rs for the exact restructuring
-  needed).
+- Linux (`.desktop` autostart file) and macOS (`LaunchAgent` plist)
+  equivalents of the Windows "Start with Windows" toggle -- see
+  autostart.rs.
+- Fix the Windows MSI's installer wizard (`UIRef Id="WixUI_InstallDir"`
+  currently fails with WIX0094 against WixToolset.UI.wixext 5.0.2 -- see
+  the TODO comment in packaging/windows/product.wxs) so it shows the
+  normal Welcome/License/install-location/Finish dialogs instead of only
+  supporting non-interactive install.
 - Add a config section + editor in the web UI instead of hand-editing TOML.
 - A second real game source (proves the modularity claim beyond one
   example) -- iRacing and ACC both expose shared-memory telemetry, which is
