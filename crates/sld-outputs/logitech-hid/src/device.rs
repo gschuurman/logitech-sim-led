@@ -80,6 +80,60 @@ impl OutputDevice for LogitechLedOutput {
     }
 }
 
+/// Writes a wheel command frame (as documented in `protocol.rs`, e.g.
+/// `[0xf8, 0x12, led_bits, ...]`) to the HID device.
+///
+/// Two things had to line up here, both confirmed against the wheel's raw
+/// report descriptor and against `new-lg4ff`'s actual driver source (not
+/// just this crate's paraphrase of it) -- see docs/led-hid-protocol.md:
+///
+/// 1. **Framing.** The joystick/FFB collection these commands target
+///    declares its Output report with *no Report ID field* (no `85 xx`
+///    item). `hidapi` still requires callers to put something in
+///    `data[0]` -- its docs say devices with a single unnumbered report
+///    must set that byte to `0x0` -- so `frame`'s own leading byte
+///    (`0xf8`, the report id the driver documents) must not go there
+///    directly, or it gets consumed as that placeholder and every real
+///    byte shifts left by one, turning a "set LEDs" command into an
+///    unrelated, unvalidated write on the wheel's raw force-feedback
+///    channel. Confirmed the hard way: this exact bug briefly commanded
+///    the wheel to full-right force instead of lighting an LED.
+/// 2. **Transfer type.** Tried routing this through `send_output_report()`
+///    (hidapi's Control-endpoint Set_Report, matching `hid-lg4ff.c`'s
+///    `HID_REQ_SET_REPORT` call) on the theory that it'd be a more faithful
+///    match for the driver -- but Windows' `HidD_SetOutputReport` outright
+///    rejected it (`hidapi error: HidD_SetOutputReport`, no wheel motion).
+///    Falling back to `write()`, which per hidapi's own docs prefers the
+///    interrupt OUT endpoint when the device has one (this wheel does, for
+///    its continuous FFB stream) -- Linux's `usbhid` layer picks the same
+///    transport for Output reports when an interrupt OUT endpoint exists,
+///    so this is the closer match in practice, despite the driver's
+///    `HID_REQ_SET_REPORT` naming suggesting otherwise.
+fn write_wheel_frame(device: &hidapi::HidDevice, frame: &[u8]) -> hidapi::HidResult<usize> {
+    let mut buf = Vec::with_capacity(frame.len() + 1);
+    buf.push(0x00);
+    buf.extend_from_slice(frame);
+    device.write(&buf)
+}
+
+/// Standalone diagnostic: finds and opens a wheel exactly like the real
+/// output device does, then flashes all 5 LEDs on briefly. Returns the
+/// protocol id used on success, or the underlying error otherwise -- useful
+/// for `sld-cli test-leds` to narrow down "found the wheel but couldn't
+/// write to it" vs. "never found it" without needing the full service/game
+/// running.
+pub fn test_leds() -> anyhow::Result<&'static str> {
+    let mut api = hidapi::HidApi::new()?;
+    let Some((device, proto)) = find_and_open_wheel(&mut api) else {
+        anyhow::bail!("no supported wheel found or opened -- see warnings above for details");
+    };
+
+    write_wheel_frame(&device, &proto.encode_leds(0x1f))?;
+    std::thread::sleep(Duration::from_millis(800));
+    write_wheel_frame(&device, &proto.encode_leds(0x00))?;
+    Ok(proto.id())
+}
+
 fn hid_writer_loop(rx: std::sync::mpsc::Receiver<LedBarState>) {
     let mut api = match hidapi::HidApi::new() {
         Ok(api) => api,
@@ -154,6 +208,9 @@ fn try_open_direct_match(
             if !proto.matches(dev_info.vendor_id(), dev_info.product_id()) {
                 continue;
             }
+            if dev_info.usage_page() != proto.usage_page() || dev_info.usage() != proto.usage() {
+                continue;
+            }
             match dev_info.open_device(api) {
                 Ok(dev) => {
                     tracing::info!(
@@ -178,7 +235,9 @@ fn try_switch_and_reopen(
     for switch in protocol::known_mode_switches() {
         let path = api.device_list().find_map(|d| {
             (d.vendor_id() == protocol::LOGITECH_VENDOR_ID
-                && d.product_id() == switch.matches_product_id)
+                && d.product_id() == switch.matches_product_id
+                && d.usage_page() == switch.usage_page
+                && d.usage() == switch.usage)
                 .then(|| d.path().to_owned())
         });
         let Some(path) = path else { continue };
@@ -194,7 +253,7 @@ fn try_switch_and_reopen(
                 continue;
             }
         };
-        if let Err(e) = dev.write(&switch.switch_report) {
+        if let Err(e) = write_wheel_frame(&dev, &switch.switch_report) {
             tracing::warn!(error = %e, wheel = switch.id, "failed to send mode-switch command");
             continue;
         }
@@ -211,12 +270,15 @@ fn try_switch_and_reopen(
             let found = api.device_list().find(|d| {
                 d.vendor_id() == protocol::LOGITECH_VENDOR_ID
                     && d.product_id() == switch.expected_product_id_after_switch
+                    && d.usage_page() == switch.usage_page
+                    && d.usage() == switch.usage
             });
             if let Some(dev_info) = found {
-                if let Some(proto) = protocols
-                    .iter()
-                    .find(|p| p.matches(dev_info.vendor_id(), dev_info.product_id()))
-                {
+                if let Some(proto) = protocols.iter().find(|p| {
+                    p.matches(dev_info.vendor_id(), dev_info.product_id())
+                        && p.usage_page() == dev_info.usage_page()
+                        && p.usage() == dev_info.usage()
+                }) {
                     match dev_info.open_device(api) {
                         Ok(dev) => {
                             tracing::info!(
@@ -283,10 +345,10 @@ fn run_led_writer(
             current_state.bits
         };
 
-        if let Err(e) = device.write(&proto.encode_leds(bits)) {
+        if let Err(e) = write_wheel_frame(&device, &proto.encode_leds(bits)) {
             tracing::warn!(error = %e, "logitech_led: failed to write HID report");
         }
     }
 
-    let _ = device.write(&proto.encode_leds(0));
+    let _ = write_wheel_frame(&device, &proto.encode_leds(0));
 }

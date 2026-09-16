@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 sld-core = { path = "../sld-core" }
 sld-source-forza = { path = "../sld-sources/forza" }
+sld-output-logitech-hid = { path = "../sld-outputs/logitech-hid" }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }

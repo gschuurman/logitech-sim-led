@@ -57,6 +57,23 @@ pub trait WheelLedProtocol: Send + Sync {
     /// USB vendor/product IDs this protocol applies to.
     fn matches(&self, vendor_id: u16, product_id: u16) -> bool;
 
+    /// HID usage page this protocol's report must be written to. Wheels
+    /// like the G923 enumerate as *several* HID interfaces under the same
+    /// vendor/product id (a vendor-specific config interface, extra
+    /// buttons, etc.) -- only the actual joystick/FFB collection accepts
+    /// output reports in this shape; writing to any other interface opens
+    /// fine but fails the `write()` (Windows: `ERROR_INVALID_PARAMETER`).
+    /// Defaults to Generic Desktop (`0x01`), which is where that
+    /// collection lives for every wheel this crate currently supports.
+    fn usage_page(&self) -> u16 {
+        0x0001
+    }
+
+    /// HID usage within [`Self::usage_page`]; `0x04` is "Joystick".
+    fn usage(&self) -> u16 {
+        0x0004
+    }
+
     /// Build the raw HID report bytes for a given 5-bit LED mask (bit 0 =
     /// leftmost LED).
     fn encode_leds(&self, led_bits: u8) -> Vec<u8>;
@@ -110,6 +127,12 @@ pub fn all_known_protocols() -> Vec<Box<dyn WheelLedProtocol>> {
 pub struct ModeSwitch {
     pub id: &'static str,
     pub matches_product_id: u16,
+    /// HID usage page/usage of the interface to send `switch_report` to --
+    /// same reasoning as [`WheelLedProtocol::usage_page`]: these wheels
+    /// enumerate multiple HID interfaces under one product id, and only
+    /// the joystick/FFB collection accepts this write.
+    pub usage_page: u16,
+    pub usage: u16,
     /// Full bytes to hand to `HidDevice::write` -- includes the leading
     /// report-id byte, which for this switch is `0x30`, not the usual
     /// `0xf8` (see module docs / `lg4ff_switch_from_ps_mode`).
@@ -124,6 +147,8 @@ pub fn known_mode_switches() -> Vec<ModeSwitch> {
     vec![ModeSwitch {
         id: "g923_ps_to_native",
         matches_product_id: G923_PS_PRODUCT_ID,
+        usage_page: 0x0001,
+        usage: 0x0004,
         switch_report: [0x30, 0xf8, 0x09, 0x07, 0x01, 0x01, 0x00, 0x00],
         expected_product_id_after_switch: G923_PRODUCT_ID,
     }]

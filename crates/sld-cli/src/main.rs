@@ -20,6 +20,19 @@ struct Cli {
 enum Command {
     /// List connected HID devices (use this to find your wheel's vendor/product id).
     ListHidDevices,
+    /// Find, open, and briefly flash the RPM LEDs on a supported wheel --
+    /// use this to check the LED path in isolation, without the game or
+    /// service running.
+    TestLeds,
+    /// Read-only: dump the raw HID report descriptor for every interface of
+    /// a given vendor/product id, so report shapes can be checked before
+    /// writing anything to the device.
+    DumpDescriptor {
+        #[arg(long, value_parser = parse_hex_u16)]
+        vid: u16,
+        #[arg(long, value_parser = parse_hex_u16)]
+        pid: u16,
+    },
     /// Listen for raw Forza "Data Out" UDP packets and print their length,
     /// a hex preview, and the parsed Sled/Dash fields.
     CaptureForza {
@@ -37,6 +50,8 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Command::ListHidDevices => list_hid_devices()?,
+        Command::TestLeds => test_leds()?,
+        Command::DumpDescriptor { vid, pid } => dump_descriptor(vid, pid)?,
         Command::CaptureForza { bind, count } => capture_forza(&bind, count).await?,
     }
 
@@ -45,15 +60,66 @@ async fn main() -> anyhow::Result<()> {
 
 fn list_hid_devices() -> anyhow::Result<()> {
     let api = hidapi::HidApi::new()?;
-    println!("{:<8} {:<8} {:<30} PATH", "VID", "PID", "PRODUCT");
+    println!(
+        "{:<8} {:<8} {:<8} {:<8} {:<30} PATH",
+        "VID", "PID", "USAGEPG", "USAGE", "PRODUCT"
+    );
     for dev in api.device_list() {
         println!(
-            "{:#06x}  {:#06x}  {:<30} {}",
+            "{:#06x}  {:#06x}  {:#06x}  {:#06x}  {:<30} {}",
             dev.vendor_id(),
             dev.product_id(),
+            dev.usage_page(),
+            dev.usage(),
             dev.product_string().unwrap_or("<unknown>"),
             dev.path().to_string_lossy()
         );
+    }
+    Ok(())
+}
+
+fn test_leds() -> anyhow::Result<()> {
+    let proto = sld_output_logitech_hid::test_leds()?;
+    println!("wheel found and LEDs flashed successfully using protocol '{proto}'");
+    Ok(())
+}
+
+fn parse_hex_u16(s: &str) -> Result<u16, String> {
+    let s = s.strip_prefix("0x").unwrap_or(s);
+    u16::from_str_radix(s, 16).map_err(|e| e.to_string())
+}
+
+/// Read-only: no writes to the device, just fetches and hex-dumps each
+/// matching interface's report descriptor.
+fn dump_descriptor(vid: u16, pid: u16) -> anyhow::Result<()> {
+    let api = hidapi::HidApi::new()?;
+    let mut buf = [0u8; hidapi::MAX_REPORT_DESCRIPTOR_SIZE];
+    for dev_info in api.device_list() {
+        if dev_info.vendor_id() != vid || dev_info.product_id() != pid {
+            continue;
+        }
+        println!(
+            "--- usage_page={:#06x} usage={:#06x} path={}",
+            dev_info.usage_page(),
+            dev_info.usage(),
+            dev_info.path().to_string_lossy()
+        );
+        let dev = match dev_info.open_device(&api) {
+            Ok(d) => d,
+            Err(e) => {
+                println!("    open failed: {e}");
+                continue;
+            }
+        };
+        match dev.get_report_descriptor(&mut buf) {
+            Ok(n) => {
+                for chunk in buf[..n].chunks(16) {
+                    let hex: Vec<String> = chunk.iter().map(|b| format!("{b:02x}")).collect();
+                    println!("    {}", hex.join(" "));
+                }
+            }
+            Err(e) => println!("    get_report_descriptor failed: {e}"),
+        }
     }
     Ok(())
 }

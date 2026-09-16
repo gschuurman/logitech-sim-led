@@ -14,4 +14,4 @@ pub mod curve;
 pub mod device;
 pub mod protocol;
 
-pub use device::LogitechLedOutput;
+pub use device::{test_leds, LogitechLedOutput};
