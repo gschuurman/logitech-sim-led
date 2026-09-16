@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<component type="desktop-application">
+<!--
+  type is console-application, not desktop-application: sld-service is a
+  background service with no window, so it has no icon asset. appstreamcli
+  compose (run automatically by flatpak-builder) rejects
+  type="desktop-application" without one ("gui-app-without-icon"), and that
+  type is the wrong description of this app anyway. console-application
+  doesn't require an icon and matches what this actually is.
+-->
+<component type="console-application">
   <id>io.github.gschuurman.logitech_sim_led</id>
   <name>logitech-sim-led</name>
   <summary>Telemetry to Logitech wheel LED service</summary>
@@ -14,6 +22,10 @@
     </p>
   </description>
   <launchable type="desktop-id">io.github.gschuurman.logitech_sim_led.desktop</launchable>
+  <provides>
+    <binary>sld-service</binary>
+    <binary>sld-cli</binary>
+  </provides>
   <url type="homepage">https://github.com/gschuurman/logitech-sim-led</url>
   <content_rating type="oars-1.1" />
 </component>
