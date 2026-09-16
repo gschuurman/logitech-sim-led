@@ -21,8 +21,10 @@ This is a fresh scaffold, not a finished product. The core architecture and
 Forza telemetry parsing (both Horizon and Motorsport's Dash formats) are
 verified against Forza's own Data Out documentation -- see
 [docs/telemetry-protocol-forza.md](docs/telemetry-protocol-forza.md). The
-G27/G29 LED protocol matches well-established community
-reverse-engineering; G920/G923 is a stub -- see the table in
+LED protocol is verified against the `berarma/new-lg4ff` Linux driver
+source for G27/G29/G923 (including the G923 PlayStation-mode switch); G920
+and Driving Force GT have no confirmed LED command and aren't supported --
+see the table in
 [docs/architecture.md](docs/architecture.md#whats-genuinely-done-vs-foundation-only)
 before assuming something works out of the box.
 

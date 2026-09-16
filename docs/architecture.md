@@ -138,8 +138,8 @@ reverse-engineering:
 | Core traits, bus, shutdown, config | Solid -- this is the actual architecture, not a stub. |
 | Forza Sled parsing (RPM, idle, redline) | Verified against Forza's own Data Out documentation for both Horizon 6 and Motorsport; byte-identical across titles. This is all the LED output needs. |
 | Forza Dash parsing (speed, gear, pedals, fuel, lap, tire wear/temps) | Verified against the same official docs, including the real structural difference between Horizon's and Motorsport's layouts (see docs/telemetry-protocol-forza.md) -- covered by unit tests in `sld-sources/forza/src/packet.rs`. `Gear`'s Reverse/Neutral convention specifically is *not* defined by Forza's docs, so it's exposed as a raw value. |
-| G29/G27 LED HID protocol | Matches widely-cited community reverse-engineering (same command Linux's `hid-lg4ff` and tools like `oversteer` use). |
-| G920/G923 LED HID protocol | Stub only -- mirrors the G29 command as a starting point, explicitly marked unverified. |
+| G27/G29/G923 LED HID protocol | Verified against the actively-maintained `berarma/new-lg4ff` Linux driver source, including the G923 PlayStation-mode-switch handshake -- see docs/led-hid-protocol.md. G923 Xbox-mode is an inference, not driver-confirmed. |
+| G920/Driving Force GT LED HID protocol | Not implemented -- the reference driver doesn't register LED support for these either, so rather than guess, the service now reports "found this wheel, but its LED protocol isn't implemented" instead of silently doing nothing. |
 | Web UI | Working minimal live-telemetry page. |
 | Tray icon | Scaffolded, not wired into `main()` -- see tray.rs. |
 
@@ -155,7 +155,9 @@ docs/adding-an-output.md for the shape it would take when it's needed.
 
 ## Near-term roadmap (not built yet)
 
-- Verify G920/G923 LED protocol against real hardware.
+- Verify against real hardware: the G923 Xbox-mode inference, and whether
+  G920/DFGT support can be added at all (needs a packet capture, since the
+  reference driver has none).
 - Wire the tray icon into `main()` (see tray.rs for the exact restructuring
   needed).
 - Add a config section + editor in the web UI instead of hand-editing TOML.

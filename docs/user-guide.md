@@ -45,9 +45,14 @@ running**.
 
 ## What you'll need
 
-- A Logitech wheel with RPM shift-light LEDs. Best supported today: **G27,
-  G29, Driving Force GT**. G920/G923 are recognized but their LED behavior
-  is unverified -- see the note in [led-hid-protocol.md](led-hid-protocol.md).
+- A Logitech wheel with RPM shift-light LEDs. Supported today: **G27,
+  G29, and G923** (native/PC mode, and PlayStation mode -- that one gets
+  automatically switched into native mode on connect). G923 Xbox-mode
+  should also work but is less certain -- see
+  [led-hid-protocol.md](led-hid-protocol.md). **G920 and Driving Force GT
+  are not supported** -- there's no confirmed LED command for them, so the
+  service will tell you it found the wheel but can't drive its LEDs,
+  rather than silently doing nothing.
 - Forza Horizon 5, Forza Horizon 6, or Forza Motorsport on PC.
 - A Windows, Linux, or macOS machine to run the service on -- normally the
   same PC the game is running on.
@@ -114,9 +119,13 @@ Restart `sld-service` after changing config for it to take effect.
 
 **LEDs never light up:**
 - Run `sld-cli list-hid-devices` -- if your wheel isn't listed at all,
-  check the USB connection; if it's listed but as a G920/G923, see the
-  caveat above (the LED command for those models is unverified and may
-  simply not work yet).
+  check the USB connection. If it's listed as a G920 or Driving Force GT,
+  that's expected not to work yet -- see the note above. Check the
+  service's own logs too: it logs a specific "found a G920/DFGT, but its
+  LED protocol isn't implemented" message rather than a generic failure.
+- If you have a G923 in PlayStation mode, the service sends a mode-switch
+  command on startup and the wheel should briefly disconnect/reconnect --
+  if that doesn't happen within a few seconds, the logs will say so.
 - Check the live telemetry page (`http://127.0.0.1:5301`) -- if RPM isn't
   updating there either, the problem is upstream of the LEDs (see next
   point), not the wheel.
@@ -165,8 +174,11 @@ Restart `sld-service` after changing config for it to take effect.
 
 To set expectations honestly:
 
-- **G920/G923 LEDs** are detected but the command used to light them is an
-  unverified placeholder -- it may not light the LEDs on real hardware yet.
+- **G920 and Driving Force GT LEDs are not supported** -- no confirmed
+  command exists for them (see [led-hid-protocol.md](led-hid-protocol.md)).
+- **G923 Xbox-mode** is supported on the (unconfirmed) assumption that it
+  behaves like native mode already -- flag it if your LEDs don't light up
+  on that specific wheel/mode.
 - **System tray icon** isn't wired up yet -- the app currently runs as a
   plain background process; the local web page is the way to see it's
   alive.

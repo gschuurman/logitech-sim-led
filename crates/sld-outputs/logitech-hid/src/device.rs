@@ -11,7 +11,7 @@
 //! LEDs show right now".
 
 use crate::curve::{LedBarState, ShiftLightCurve};
-use crate::protocol;
+use crate::protocol::{self, WheelLedProtocol};
 use async_trait::async_trait;
 use sld_core::shutdown::ShutdownSignal;
 use sld_core::telemetry::TelemetryFrame;
@@ -81,7 +81,7 @@ impl OutputDevice for LogitechLedOutput {
 }
 
 fn hid_writer_loop(rx: std::sync::mpsc::Receiver<LedBarState>) {
-    let api = match hidapi::HidApi::new() {
+    let mut api = match hidapi::HidApi::new() {
         Ok(api) => api,
         Err(e) => {
             tracing::error!(error = %e, "logitech_led: failed to initialize hidapi");
@@ -89,41 +89,173 @@ fn hid_writer_loop(rx: std::sync::mpsc::Receiver<LedBarState>) {
         }
     };
 
-    let protocols = protocol::all_known_protocols();
-    let mut found: Option<(hidapi::HidDevice, &'static str)> = None;
+    let Some((device, proto)) = find_and_open_wheel(&mut api) else {
+        return;
+    };
 
-    'search: for dev_info in api.device_list() {
-        for proto in &protocols {
-            if proto.matches(dev_info.vendor_id(), dev_info.product_id()) {
-                match dev_info.open_device(&api) {
-                    Ok(dev) => {
-                        tracing::info!(
-                            protocol = proto.id(),
-                            "opened Logitech wheel for LED output"
-                        );
-                        found = Some((dev, proto.id()));
-                        break 'search;
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, protocol = proto.id(), "found matching wheel but failed to open it");
-                    }
+    run_led_writer(device, proto.as_ref(), rx);
+}
+
+/// Locates a supported wheel and returns an opened device + the protocol to
+/// drive it with. Handles three cases, in order:
+///
+/// 1. A wheel already presenting under a product id
+///    [`protocol::ClassicLedProtocol`] recognizes -- opened directly.
+/// 2. A wheel in a known compatibility mode (currently: G923 in
+///    PlayStation mode) -- sends the mode-switch command, waits for it to
+///    re-enumerate under its native product id, then opens that.
+/// 3. A recognized-but-unsupported Logitech wheel (e.g. G920) -- logged
+///    with a specific message so it's clearly not just "not found".
+///
+/// Returns `None` (having already logged why) if no wheel could be opened.
+fn find_and_open_wheel(
+    api: &mut hidapi::HidApi,
+) -> Option<(hidapi::HidDevice, Box<dyn WheelLedProtocol>)> {
+    let protocols = protocol::all_known_protocols();
+
+    if let Some(found) = try_open_direct_match(api, &protocols) {
+        return Some(found);
+    }
+
+    if let Some(found) = try_switch_and_reopen(api, &protocols) {
+        return Some(found);
+    }
+
+    for dev_info in api.device_list() {
+        if dev_info.vendor_id() != protocol::LOGITECH_VENDOR_ID {
+            continue;
+        }
+        if let Some((_, name)) = protocol::known_unsupported_wheels()
+            .into_iter()
+            .find(|(pid, _)| *pid == dev_info.product_id())
+        {
+            tracing::warn!(
+                wheel = name,
+                product_id = format!("{:#06x}", dev_info.product_id()),
+                "logitech_led: found a {name}, but its LED protocol isn't implemented yet \
+                 (see docs/led-hid-protocol.md)"
+            );
+            return None;
+        }
+    }
+
+    tracing::warn!(
+        "logitech_led: no supported wheel found; run `sld-cli list-hid-devices` to check vendor/product ids"
+    );
+    None
+}
+
+fn try_open_direct_match(
+    api: &hidapi::HidApi,
+    protocols: &[Box<dyn WheelLedProtocol>],
+) -> Option<(hidapi::HidDevice, Box<dyn WheelLedProtocol>)> {
+    for dev_info in api.device_list() {
+        for proto in protocols {
+            if !proto.matches(dev_info.vendor_id(), dev_info.product_id()) {
+                continue;
+            }
+            match dev_info.open_device(api) {
+                Ok(dev) => {
+                    tracing::info!(
+                        protocol = proto.id(),
+                        "opened Logitech wheel for LED output"
+                    );
+                    return Some((dev, clone_boxed(proto.as_ref())));
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, protocol = proto.id(), "found matching wheel but failed to open it");
                 }
             }
         }
     }
+    None
+}
 
-    let Some((device, proto_id)) = found else {
-        tracing::warn!(
-            "logitech_led: no supported wheel found; run `sld-cli list-hid-devices` to check vendor/product ids"
+fn try_switch_and_reopen(
+    api: &mut hidapi::HidApi,
+    protocols: &[Box<dyn WheelLedProtocol>],
+) -> Option<(hidapi::HidDevice, Box<dyn WheelLedProtocol>)> {
+    for switch in protocol::known_mode_switches() {
+        let path = api.device_list().find_map(|d| {
+            (d.vendor_id() == protocol::LOGITECH_VENDOR_ID
+                && d.product_id() == switch.matches_product_id)
+                .then(|| d.path().to_owned())
+        });
+        let Some(path) = path else { continue };
+
+        tracing::info!(
+            wheel = switch.id,
+            "found wheel in a compatibility mode; sending mode-switch command"
         );
-        return;
-    };
+        let dev = match api.open_path(&path) {
+            Ok(dev) => dev,
+            Err(e) => {
+                tracing::warn!(error = %e, wheel = switch.id, "failed to open wheel to switch its mode");
+                continue;
+            }
+        };
+        if let Err(e) = dev.write(&switch.switch_report) {
+            tracing::warn!(error = %e, wheel = switch.id, "failed to send mode-switch command");
+            continue;
+        }
+        // The wheel detaches and re-enumerates under a new product id
+        // after this -- drop our handle to the old one and poll for it.
+        drop(dev);
 
-    let proto = protocols
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(250));
+            if api.refresh_devices().is_err() {
+                continue;
+            }
+            let found = api.device_list().find(|d| {
+                d.vendor_id() == protocol::LOGITECH_VENDOR_ID
+                    && d.product_id() == switch.expected_product_id_after_switch
+            });
+            if let Some(dev_info) = found {
+                if let Some(proto) = protocols
+                    .iter()
+                    .find(|p| p.matches(dev_info.vendor_id(), dev_info.product_id()))
+                {
+                    match dev_info.open_device(api) {
+                        Ok(dev) => {
+                            tracing::info!(
+                                wheel = switch.id,
+                                protocol = proto.id(),
+                                "wheel switched mode successfully, opened for LED output"
+                            );
+                            return Some((dev, clone_boxed(proto.as_ref())));
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, wheel = switch.id, "wheel re-enumerated but failed to open");
+                        }
+                    }
+                }
+            }
+        }
+        tracing::warn!(
+            wheel = switch.id,
+            "wheel did not re-enumerate in native mode within 5s after mode-switch command"
+        );
+    }
+    None
+}
+
+/// `all_known_protocols()` returns owned `Box<dyn WheelLedProtocol>`s with
+/// no state, so a fresh instance found by matching `id()` is equivalent to
+/// cloning the trait object we're already holding a `&` to.
+fn clone_boxed(proto: &dyn WheelLedProtocol) -> Box<dyn WheelLedProtocol> {
+    protocol::all_known_protocols()
         .into_iter()
-        .find(|p| p.id() == proto_id)
-        .expect("proto_id came from this exact list");
+        .find(|p| p.id() == proto.id())
+        .expect("id came from this exact list")
+}
 
+fn run_led_writer(
+    device: hidapi::HidDevice,
+    proto: &dyn WheelLedProtocol,
+    rx: std::sync::mpsc::Receiver<LedBarState>,
+) {
     let mut blink_on = false;
     let mut last_blink_toggle = Instant::now();
     let mut current_state = LedBarState::default();
