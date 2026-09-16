@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.gschuurman.logitech_sim_led</id>
+  <name>logitech-sim-led</name>
+  <summary>Telemetry to Logitech wheel LED service</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>
+      Cross-platform background service that ingests racing-game telemetry
+      (Forza Horizon 5/6, Forza Motorsport) and drives the RPM shift-light
+      LEDs on a Logitech G27/G29/G923 wheel. Runs in the background with a
+      local web UI for live telemetry; no Logitech G HUB required.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.gschuurman.logitech_sim_led.desktop</launchable>
+  <url type="homepage">https://github.com/gschuurman/logitech-sim-led</url>
+  <content_rating type="oars-1.1" />
+</component>

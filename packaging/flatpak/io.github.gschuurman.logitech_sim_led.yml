@@ -1,0 +1,59 @@
+---
+# Flatpak manifest, built with flatpak-builder. This is how the app installs
+# on SteamOS (and any other Flatpak-capable Linux desktop): SteamOS's root
+# filesystem is read-only/dm-verity-protected and gets reset on every OS
+# update, so a traditional .deb/.rpm-style install (writing into /usr, /etc)
+# doesn't survive an update even if you could get pacman to accept it.
+# Flatpak apps live under /var/lib/flatpak (system) or ~/.var/app (user),
+# both of which are on the writable, persistent partition -- this is Valve's
+# own recommended path for installing third-party software on SteamOS, and
+# it's what Discover (the SteamOS software center) natively installs.
+#
+# Built genuinely from source inside the Flatpak sandbox (not by copying in
+# a binary built elsewhere) using the rust-stable SDK extension, so the
+# result is linked against the same glibc it'll actually run against. Since
+# this isn't submitted to Flathub, network access during the build (to fetch
+# crates.io dependencies) is fine -- Flathub's offline-build requirement
+# doesn't apply to a self-distributed bundle.
+#
+# Built by .github/workflows/release.yml on every v*.*.* tag; see
+# docs/installers.md for install/uninstall instructions.
+app-id: io.github.gschuurman.logitech_sim_led
+runtime: org.freedesktop.Platform
+runtime-version: "24.08"
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: sld-service
+finish-args:
+  # UDP telemetry in from the game, and the local web UI (127.0.0.1:5301).
+  - --share=network
+  # Raw HID access to the wheel. Flatpak has no finer-grained portal for
+  # hidraw devices specifically -- --device=all is the coarsest permission
+  # Flatpak offers, but it's what any sandboxed app needing arbitrary
+  # USB/HID access has to request; there's no narrower option to ask for
+  # just "this one wheel".
+  - --device=all
+  # Where the running service reads config/default.toml from once
+  # installed -- see the `install` line below that seeds it on first run.
+  - --filesystem=xdg-config/logitech-sim-led:create
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  build-args:
+    - --share=network
+modules:
+  - name: logitech-sim-led
+    buildsystem: simple
+    build-commands:
+      - cargo build --release --offline=false -p sld-service -p sld-cli
+      - install -Dm755 target/release/sld-service /app/bin/sld-service
+      - install -Dm755 target/release/sld-cli /app/bin/sld-cli
+      - install -Dm644 config/default.toml /app/etc/logitech-sim-led/default.toml
+      - install -Dm644 packaging/flatpak/io.github.gschuurman.logitech_sim_led.desktop /app/share/applications/io.github.gschuurman.logitech_sim_led.desktop
+      - install -Dm644 packaging/flatpak/io.github.gschuurman.logitech_sim_led.metainfo.xml /app/share/metainfo/io.github.gschuurman.logitech_sim_led.metainfo.xml
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - target

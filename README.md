@@ -84,7 +84,8 @@ cargo run -p sld-cli -- capture-forza --count 20 # verify/calibrate Forza packet
   pushing a tag matching `v*.*.*` (e.g. `git tag v0.1.0 && git push origin v0.1.0`)
   builds plain `.tar.gz`/`.zip` archives for Linux (x86_64), Windows
   (x86_64), and macOS (x86_64 + aarch64), **and** native installers --
-  a Windows `.msi`, macOS `.pkg` (per architecture), and Linux `.deb` --
+  a Windows `.msi`, macOS `.pkg` (per architecture), a Linux `.deb`, and a
+  `.flatpak` for SteamOS (and other Flatpak-capable Linux desktops) --
   and publishes all of it to a GitHub Release. See
   [docs/installers.md](docs/installers.md) for what each installer does
   and how to uninstall.

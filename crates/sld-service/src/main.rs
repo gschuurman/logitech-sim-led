@@ -13,7 +13,6 @@ use sld_core::bus;
 use sld_core::shutdown::ShutdownHandle;
 use tracing_subscriber::EnvFilter;
 
-const CONFIG_PATH: &str = "config/default.toml";
 const WEB_BIND_ADDR: &str = "127.0.0.1:5301";
 
 #[tokio::main]
@@ -24,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let cfg = config::load_or_default(CONFIG_PATH)?;
+    let cfg = config::load_default_config()?;
     let (bus_tx, _bus_rx) = bus::new_bus(cfg.bus_capacity);
     let (shutdown_handle, shutdown_signal) = ShutdownHandle::new();
 

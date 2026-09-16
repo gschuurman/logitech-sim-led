@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=logitech-sim-led
+Comment=Telemetry to Logitech wheel LED service
+Exec=sld-service
+Terminal=true
+Categories=Utility;

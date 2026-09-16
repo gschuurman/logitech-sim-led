@@ -205,8 +205,48 @@ jobs:
           path: ${{ env.DEB_PATH }}
           if-no-files-found: error
 
+  # SteamOS (and any other Flatpak-capable Linux desktop). SteamOS's root
+  # filesystem is read-only and reset on every OS update, so the .deb above
+  # doesn't apply there even though it's also Linux -- see the manifest's
+  # own comments and docs/installers.md for why Flatpak is the right target.
+  # This one is meaningfully heavier than the others: it builds the Rust
+  # binaries genuinely from source *inside* the Flatpak sandbox (against
+  # the runtime's own glibc, which is the idiomatic way to do this) rather
+  # than reusing binaries built elsewhere, and has to download the
+  # freedesktop Platform/Sdk runtimes plus the Rust SDK extension first.
+  package-steamos-flatpak:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
+      - name: Install Flatpak runtime and SDK
+        run: |
+          flatpak install --user -y flathub \
+            org.freedesktop.Platform//24.08 \
+            org.freedesktop.Sdk//24.08 \
+            org.freedesktop.Sdk.Extension.rust-stable//24.08
+      - name: Build Flatpak
+        run: |
+          set -euo pipefail
+          flatpak-builder --force-clean --repo=repo builddir \
+            packaging/flatpak/io.github.gschuurman.logitech_sim_led.yml
+          out="logitech-sim-led-${GITHUB_REF_NAME}-x86_64.flatpak"
+          flatpak build-bundle \
+            --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo \
+            repo "$out" io.github.gschuurman.logitech_sim_led
+          echo "FLATPAK_PATH=$out" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: logitech-sim-led-installer-steamos
+          path: ${{ env.FLATPAK_PATH }}
+          if-no-files-found: error
+
   publish-release:
-    needs: [build, package-windows-msi, package-macos-pkg, package-linux-deb]
+    needs: [build, package-windows-msi, package-macos-pkg, package-linux-deb, package-steamos-flatpak]
     # The native installer jobs are newer and less battle-tested than
     # `build` (which just tars/zips the binaries) -- if one of them fails,
     # that shouldn't block publishing the release with whatever *did*

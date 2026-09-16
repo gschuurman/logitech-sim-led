@@ -68,6 +68,12 @@ Grab the latest release from [GitHub Releases](https://github.com/gschuurman/log
   `sudo /usr/local/share/logitech-sim-led/uninstall.sh`.
 - **Linux**: the `.deb` -- `sudo apt install ./logitech-sim-led-*.deb`,
   and `sudo apt remove logitech-sim-led` to uninstall.
+- **SteamOS** (or another Flatpak-capable Linux desktop): the `.flatpak` --
+  install via Discover or `flatpak install --user`, and `flatpak
+  uninstall` to remove. SteamOS's read-only root can't take a `.deb`
+  install, which is why this is separate from the Linux option above --
+  see [installers.md](installers.md) for the details, including that it
+  needs the `--device=all` Flatpak permission to reach the wheel.
 
 Plain `.tar.gz`/`.zip` archives are also published for every platform if
 you'd rather just unpack the binaries yourself. See
@@ -95,9 +101,12 @@ want the latest code, see the "Building" section in the main
      it's the same PC as the game)
    - Port: `5300` (matches the default in `config/default.toml`)
 
-3. **Check `config/default.toml`.** The defaults work for the common case
-   (Forza on the same PC, LEDs on): the shipped file already has
-   `sources.forza` and `outputs.logitech_led` enabled.
+3. **Check the config file.** The defaults work for the common case (Forza
+   on the same PC, LEDs on): the shipped file already has `sources.forza`
+   and `outputs.logitech_led` enabled, so you likely don't need to touch
+   it. If you do want to change something, where to find it depends on how
+   you installed -- see the config-file note in
+   [installers.md](installers.md).
 
 4. **Run it:** the Start Menu shortcut (Windows/MSI install), or from a
    terminal:
