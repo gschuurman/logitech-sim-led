@@ -150,6 +150,13 @@ pub fn test_leds() -> anyhow::Result<&'static str> {
     Ok(proto.id())
 }
 
+/// Wheels aren't always present under their native product id the moment
+/// this thread starts -- the service may start before the wheel is powered
+/// on, or before whatever puts it in "sim" mode has run. Retrying
+/// indefinitely (rather than giving up after one failed scan, as this used
+/// to) means a wheel that shows up later still gets picked up, instead of
+/// silently never lighting an LED for the rest of the process's life while
+/// telemetry keeps flowing to everything else on the bus.
 fn hid_writer_loop(rx: std::sync::mpsc::Receiver<LedBarState>) {
     let mut api = match hidapi::HidApi::new() {
         Ok(api) => api,
@@ -159,11 +166,29 @@ fn hid_writer_loop(rx: std::sync::mpsc::Receiver<LedBarState>) {
         }
     };
 
-    let Some((device, proto)) = find_and_open_wheel(&mut api) else {
-        return;
-    };
+    loop {
+        if let Err(e) = api.refresh_devices() {
+            tracing::warn!(error = %e, "logitech_led: failed to refresh HID device list");
+        }
 
-    run_led_writer(device, proto.as_ref(), rx);
+        if let Some((device, proto)) = find_and_open_wheel(&mut api) {
+            let shutting_down = run_led_writer(device, proto.as_ref(), &rx);
+            if shutting_down {
+                return;
+            }
+            // Device was lost mid-run (write failures) -- loop back around
+            // and try to find it again.
+            continue;
+        }
+
+        // No wheel found this pass -- wait a bit before rescanning, but
+        // keep draining the channel while we wait so shutdown (channel
+        // disconnect) is noticed promptly instead of only after the sleep.
+        match rx.recv_timeout(Duration::from_secs(2)) {
+            Err(RecvTimeoutError::Disconnected) => return,
+            _ => {}
+        }
+    }
 }
 
 /// Locates a supported wheel and returns an opened device + the protocol to
@@ -329,14 +354,20 @@ fn clone_boxed(proto: &dyn WheelLedProtocol) -> Box<dyn WheelLedProtocol> {
         .expect("id came from this exact list")
 }
 
+/// Runs until the channel disconnects (service shutting down) or writes to
+/// the device start failing repeatedly (wheel unplugged/powered off).
+/// Returns `true` for the former, `false` for the latter, so
+/// `hid_writer_loop` knows whether to rescan for the wheel or stop for
+/// good.
 fn run_led_writer(
     device: hidapi::HidDevice,
     proto: &dyn WheelLedProtocol,
-    rx: std::sync::mpsc::Receiver<LedBarState>,
-) {
+    rx: &std::sync::mpsc::Receiver<LedBarState>,
+) -> bool {
     let mut blink_on = false;
     let mut last_blink_toggle = Instant::now();
     let mut current_state = LedBarState::default();
+    let mut consecutive_write_failures = 0u32;
 
     // Block waiting for the next desired state, but with a short timeout so
     // an in-progress blink keeps animating even without fresh telemetry.
@@ -344,7 +375,10 @@ fn run_led_writer(
         match rx.recv_timeout(Duration::from_millis(50)) {
             Ok(state) => current_state = state,
             Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => break,
+            Err(RecvTimeoutError::Disconnected) => {
+                let _ = write_wheel_frame(&device, &proto.encode_leds(0));
+                return true;
+            }
         }
 
         let bits = if current_state.blink {
@@ -361,10 +395,18 @@ fn run_led_writer(
             current_state.bits
         };
 
-        if let Err(e) = write_wheel_frame(&device, &proto.encode_leds(bits)) {
-            tracing::warn!(error = %e, "logitech_led: failed to write HID report");
+        match write_wheel_frame(&device, &proto.encode_leds(bits)) {
+            Ok(_) => consecutive_write_failures = 0,
+            Err(e) => {
+                consecutive_write_failures += 1;
+                tracing::warn!(error = %e, "logitech_led: failed to write HID report");
+                if consecutive_write_failures >= 5 {
+                    tracing::warn!(
+                        "logitech_led: wheel appears to have disconnected, will rescan"
+                    );
+                    return false;
+                }
+            }
         }
     }
-
-    let _ = write_wheel_frame(&device, &proto.encode_leds(0));
 }
