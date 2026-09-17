@@ -134,6 +134,53 @@
   #settingsResult { margin-top: 0.7rem; font-size: 0.8rem; min-height: 1.1em; }
   #settingsResult.ok { color: var(--accent); }
   #settingsResult.err { color: var(--danger); }
+
+  .setup-toggle { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+  .setup-toggle button {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--panel-border);
+    font-weight: 500;
+  }
+  .setup-toggle button.active {
+    background: var(--accent);
+    color: #0d1a10;
+    border-color: var(--accent);
+  }
+  .setup-steps { margin: 0; padding-left: 1.2rem; font-size: 0.82rem; }
+  .setup-steps li { margin-bottom: 0.9rem; }
+  .setup-steps li:last-child { margin-bottom: 0; }
+  .kv-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-top: 0.4rem;
+    flex-wrap: wrap;
+  }
+  .kv {
+    background: var(--bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    padding: 0.35rem 0.6rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.85rem;
+  }
+  .kv .k { color: var(--muted); }
+  .copy-btn {
+    background: transparent;
+    border: 1px solid var(--panel-border);
+    color: var(--muted);
+    padding: 0.35rem 0.6rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    border-radius: 6px;
+  }
+  .copy-btn:hover:not(:disabled) { color: var(--text); border-color: var(--muted); filter: none; }
+  #setupWarning {
+    font-size: 0.8rem;
+    color: var(--danger);
+    margin-top: 0.9rem;
+  }
 </style>
 </head>
 <body>
@@ -153,6 +200,59 @@
   <div class="tile"><div class="label">RPM</div><div class="value" id="rpm">&ndash;</div></div>
   <div class="tile"><div class="label">Speed (km/h)</div><div class="value" id="speed">&ndash;</div></div>
   <div class="tile"><div class="label">Gear</div><div class="value" id="gear">&ndash;</div></div>
+</div>
+
+<div class="panel">
+  <h2>First-time setup: connect your game</h2>
+  <p>Point your game's telemetry export at this app, then confirm it below with the live tiles above.</p>
+
+  <div class="setup-toggle">
+    <button type="button" id="setupSameMachine" class="active">Game is on this PC</button>
+    <button type="button" id="setupOtherMachine">Game is on a different PC</button>
+  </div>
+
+  <ol class="setup-steps">
+    <li>
+      Make sure your wheel is plugged in over USB. Use the <strong>Test
+      LEDs</strong> button below to confirm it's found before touching the
+      game at all.
+    </li>
+    <li>
+      In Forza (Horizon 5, Horizon 6, or Motorsport), go to
+      <strong>Settings &gt; HUD and Gameplay &gt; Data Out</strong> and set:
+      <div class="kv-row">
+        <span class="kv"><span class="k">Data Out:</span> On</span>
+      </div>
+      <div class="kv-row">
+        <span class="kv"><span class="k">IP Address:</span> <span id="setupIp">127.0.0.1</span></span>
+        <button type="button" class="copy-btn" id="copyIpBtn">Copy</button>
+      </div>
+      <div class="kv-row">
+        <span class="kv"><span class="k">Port:</span> <span id="setupPort">5300</span></span>
+        <button type="button" class="copy-btn" id="copyPortBtn">Copy</button>
+      </div>
+      <div id="setupOtherMachineNote" style="display:none; font-size: 0.78rem; color: var(--muted); margin-top: 0.5rem;">
+        Use the IP of <em>this</em> machine (the one running
+        logitech-sim-led) on your network, not the game PC's IP. If the
+        address above doesn't look right, run <code>ipconfig</code>
+        (Windows) or <code>ip addr</code> (Linux/macOS) on this machine to
+        find it, and make sure firewalls allow inbound UDP on the port
+        above.
+      </div>
+      <div id="setupFormatNote" style="font-size: 0.78rem; color: var(--muted); margin-top: 0.5rem;">
+        Forza Motorsport also has a <strong>Data Out Packet Format</strong>
+        setting -- set it to <strong>Dash</strong>, not "Sled", or you'll
+        get RPM but no speed/gear/fuel.
+      </div>
+    </li>
+    <li>
+      Get in a race. The <strong>RPM</strong>, <strong>Speed</strong>, and
+      <strong>Gear</strong> tiles above should start updating live -- once
+      they do, the wheel's LEDs should light up as you accelerate toward
+      redline.
+    </li>
+  </ol>
+  <div id="setupWarning"></div>
 </div>
 
 <div class="panel">
@@ -184,9 +284,17 @@
     </div>
   </div>
 
+  <div class="field">
+    <label for="blinkPct">Flash like a limiter at <span class="pct" id="blinkPctLabel">97%</span> of redline</label>
+    <div class="row">
+      <input type="range" id="blinkPct" min="1" max="100" step="1" value="97">
+      <input type="number" id="blinkPctNum" min="1" max="100" step="1" value="97">
+    </div>
+  </div>
+
   <div class="checkbox-row">
     <input type="checkbox" id="blinkAtRedline" checked>
-    <label for="blinkAtRedline" style="margin:0;">Blink all LEDs at redline</label>
+    <label for="blinkAtRedline" style="margin:0;">Flash all LEDs near redline</label>
   </div>
 
   <div class="checkbox-row">
@@ -221,6 +329,58 @@
   }
   connect();
 
+  // --- Setup wizard ---
+  const sameMachineBtn = document.getElementById('setupSameMachine');
+  const otherMachineBtn = document.getElementById('setupOtherMachine');
+  const setupIp = document.getElementById('setupIp');
+  const setupPort = document.getElementById('setupPort');
+  const setupOtherMachineNote = document.getElementById('setupOtherMachineNote');
+  const setupWarning = document.getElementById('setupWarning');
+  let setupLocalIp = null;
+
+  function showSameMachine() {
+    sameMachineBtn.classList.add('active');
+    otherMachineBtn.classList.remove('active');
+    setupIp.textContent = '127.0.0.1';
+    setupOtherMachineNote.style.display = 'none';
+  }
+  function showOtherMachine() {
+    otherMachineBtn.classList.add('active');
+    sameMachineBtn.classList.remove('active');
+    setupIp.textContent = setupLocalIp || 'unknown — see note below';
+    setupOtherMachineNote.style.display = '';
+  }
+  sameMachineBtn.addEventListener('click', showSameMachine);
+  otherMachineBtn.addEventListener('click', showOtherMachine);
+
+  function copyToClipboard(text, btnEl) {
+    navigator.clipboard.writeText(text).then(() => {
+      const original = btnEl.textContent;
+      btnEl.textContent = 'Copied!';
+      setTimeout(() => { btnEl.textContent = original; }, 1200);
+    }).catch(() => {});
+  }
+  document.getElementById('copyIpBtn').addEventListener('click', (e) => copyToClipboard(setupIp.textContent, e.target));
+  document.getElementById('copyPortBtn').addEventListener('click', (e) => copyToClipboard(setupPort.textContent, e.target));
+
+  async function loadSetupInfo() {
+    try {
+      const res = await fetch('/api/setup-info');
+      const info = await res.json();
+      setupPort.textContent = info.forza_port;
+      setupLocalIp = info.local_ip;
+      if (otherMachineBtn.classList.contains('active')) showOtherMachine();
+      if (!info.forza_enabled) {
+        setupWarning.textContent = 'No telemetry source is enabled in config right now, so nothing will show up here yet — enable [sources.forza] in the config file and restart.';
+      } else {
+        setupWarning.textContent = '';
+      }
+    } catch (e) {
+      setupWarning.textContent = 'Could not load setup info: ' + e;
+    }
+  }
+  loadSetupInfo();
+
   const btn = document.getElementById('testLedsBtn');
   const result = document.getElementById('ledResult');
   btn.addEventListener('click', async () => {
@@ -247,6 +407,9 @@
   const fullRange = document.getElementById('fullPct');
   const fullNum = document.getElementById('fullPctNum');
   const fullLabel = document.getElementById('fullPctLabel');
+  const blinkPctRange = document.getElementById('blinkPct');
+  const blinkPctNum = document.getElementById('blinkPctNum');
+  const blinkPctLabel = document.getElementById('blinkPctLabel');
   const blinkCheckbox = document.getElementById('blinkAtRedline');
   const minimizeCheckbox = document.getElementById('minimizeToTray');
   const settingsResult = document.getElementById('settingsResult');
@@ -258,18 +421,26 @@
   }
   syncPair(shiftRange, shiftNum, shiftLabel);
   syncPair(fullRange, fullNum, fullLabel);
+  syncPair(blinkPctRange, blinkPctNum, blinkPctLabel);
 
   function onThresholdsChanged() {
     let shift = clampInt(shiftNum.value, 0, 99);
     let full = clampInt(fullNum.value, 1, 100);
+    let blink = clampInt(blinkPctNum.value, 1, 100);
     if (full <= shift) {
       full = Math.min(100, shift + 1);
       fullNum.value = full;
       fullRange.value = full;
     }
+    if (blink < full) {
+      blink = full;
+      blinkPctNum.value = blink;
+      blinkPctRange.value = blink;
+    }
     shiftLabel.textContent = shift + '%';
     fullLabel.textContent = full + '%';
-    renderCurvePreview(shift, full);
+    blinkPctLabel.textContent = blink + '%';
+    renderCurvePreview(shift, full, blink);
   }
 
   function clampInt(v, lo, hi) {
@@ -278,7 +449,7 @@
     return Math.max(lo, Math.min(hi, v));
   }
 
-  function renderCurvePreview(shift, full) {
+  function renderCurvePreview(shift, full, blink) {
     curvePreview.innerHTML = '';
     const dark = document.createElement('div');
     dark.style.flexBasis = shift + '%';
@@ -287,9 +458,12 @@
     ramp.style.flexBasis = (full - shift) + '%';
     ramp.style.background = 'linear-gradient(to right, #22c55e, #eab308, #ef4444)';
     const solid = document.createElement('div');
-    solid.style.flexBasis = (100 - full) + '%';
+    solid.style.flexBasis = (blink - full) + '%';
     solid.style.background = '#ef4444';
-    curvePreview.append(dark, ramp, solid);
+    const flash = document.createElement('div');
+    flash.style.flexBasis = (100 - blink) + '%';
+    flash.style.background = 'repeating-linear-gradient(45deg, #ef4444, #ef4444 4px, #7f1d1d 4px, #7f1d1d 8px)';
+    curvePreview.append(dark, ramp, solid, flash);
   }
 
   async function loadSettings() {
@@ -298,8 +472,10 @@
       const s = await res.json();
       const shift = Math.round(s.shift_point_pct * 100);
       const full = Math.round(s.full_bar_pct * 100);
+      const blink = Math.round(s.blink_pct * 100);
       shiftRange.value = shift; shiftNum.value = shift;
       fullRange.value = full; fullNum.value = full;
+      blinkPctRange.value = blink; blinkPctNum.value = blink;
       blinkCheckbox.checked = s.blink_at_redline;
       minimizeCheckbox.checked = s.minimize_to_tray_on_close;
       onThresholdsChanged();
@@ -322,6 +498,7 @@
         body: JSON.stringify({
           shift_point_pct: clampInt(shiftNum.value, 0, 99) / 100,
           full_bar_pct: clampInt(fullNum.value, 1, 100) / 100,
+          blink_pct: clampInt(blinkPctNum.value, 1, 100) / 100,
           blink_at_redline: blinkCheckbox.checked,
           minimize_to_tray_on_close: minimizeCheckbox.checked,
         }),

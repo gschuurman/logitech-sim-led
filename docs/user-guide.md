@@ -129,22 +129,39 @@ bar:
 - **Start flashing at**: where the *first* LED lights up, as a percentage
   of `rpm_max` (redline) for the current car -- *not* of the
   idle-to-redline range. Lower this for an earlier warning.
-- **Fully on at**: where *all 5* LEDs are lit. From here up to redline the
-  bar stays solidly full -- e.g. 80% leaves the top 20% of the rev range
-  fully lit rather than still ramping up right to redline.
-- **Blink all LEDs at redline**: whether all 5 flash once you hit redline,
-  instead of just staying solid.
+- **Fully on at**: where *all 5* LEDs are lit. From here up to the flash
+  threshold below the bar stays solidly full -- e.g. 80% leaves the top of
+  the rev range fully lit rather than still ramping up right to redline.
+- **Flash like a limiter at**: where the solid full bar starts flashing
+  instead, as a percentage of redline -- e.g. 97% gives you a short,
+  clearly-distinct "you're basically at the limiter" flash over the last
+  3% of the rev range, rather than only starting to flash the instant RPM
+  ticks past redline.
+- **Flash all LEDs near redline**: whether that near-redline zone flashes
+  at all, as opposed to just staying solidly lit like the rest of the
+  full-bar zone.
 - **Minimize to tray**: whether closing the window (the title bar X
   button) hides it to the tray icon instead of quitting the app.
 
 Hit **Save Settings** -- changes apply immediately (no restart needed) and
 persist to a per-user config file, so they survive a restart too. The
-same three LED settings can still be hand-edited in `config/default.toml`
-under `[outputs.logitech_led]` (`shift_point_pct`, `full_bar_pct`,
+same LED settings can still be hand-edited in `config/default.toml` under
+`[outputs.logitech_led]` (`shift_point_pct`, `full_bar_pct`, `blink_pct`,
 `blink_at_redline`, all `0.0`-`1.0`) -- useful for the headless/console
 build (`--no-default-features --features web`, e.g. under systemd), which
 has no window to toggle "minimize to tray" for in the first place.
 Restart `sld-service` after hand-editing config for it to take effect.
+
+## First-time setup wizard
+
+The dashboard's **"First-time setup: connect your game"** panel walks
+through the same steps as above interactively: toggle whether the game
+runs on this PC or a different one on your network, and it fills in the
+exact IP address and port to type into Forza's Data Out settings (the
+port comes from your actual `sources.forza.bind_addr` config, and the IP
+is auto-detected for the "different PC" case). It also flags if no
+telemetry source is enabled in config at all, so you're not left
+wondering why the tiles above never update.
 
 ## Troubleshooting
 

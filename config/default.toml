@@ -17,7 +17,11 @@ enabled = true
 # on. 0.6 means the first LED lights at 60% of redline.
 shift_point_pct = 0.6
 # Fraction of rpm_max at which all 5 LEDs are lit; the bar stays solidly
-# full from here up to redline (0.8 leaves the top 20% of the rev range
+# full from here up to blink_pct (0.8 leaves the top 20% of the rev range
 # fully lit, not still ramping).
 full_bar_pct = 0.8
+# Fraction of rpm_max at which the solid full bar starts flashing instead,
+# like hitting a rev limiter -- a deadzone just below redline rather than
+# only exactly at/above it.
+blink_pct = 0.97
 blink_at_redline = true

@@ -9,21 +9,32 @@ pub struct ShiftLightCurve {
     /// turns on.
     pub shift_point_pct: f32,
     /// Fraction (0.0-1.0) of `rpm_max` at which all 5 LEDs are lit. From
-    /// here up to redline the bar stays solidly full -- this is the "top
-    /// N% should already be maxed out" zone, not more ramping.
+    /// here up to `blink_pct` the bar stays solidly full -- this is the
+    /// "top N% should already be maxed out" zone, not more ramping.
     pub full_bar_pct: f32,
-    /// Whether to flash all LEDs once RPM is at/above the redline.
+    /// Fraction (0.0-1.0) of `rpm_max` at which the solid full bar starts
+    /// flashing instead, like a rev limiter -- a deadzone just below
+    /// redline rather than only exactly at/above it. Clamped to at least
+    /// `full_bar_pct` so the flashing zone never starts before the solidly
+    /// lit one.
+    pub blink_pct: f32,
+    /// Whether the near-redline zone (`blink_pct` and above) flashes at
+    /// all, as opposed to just staying solidly lit like the rest of the
+    /// full-bar zone.
     pub blink_at_redline: bool,
 }
 
 impl Default for ShiftLightCurve {
     fn default() -> Self {
         Self {
-            // First LED at 60% of redline, full bar by 80% -- leaves the
-            // top 20% of the rev range solidly lit rather than still
-            // ramping right up to redline.
+            // First LED at 60% of redline, full bar by 80%, flashing over
+            // the last 3% -- leaves a normal sweep across most of the rev
+            // range, with a short, clearly-distinct "you're at the
+            // limiter" signal right at the top instead of blinking the
+            // instant RPM ticks over redline.
             shift_point_pct: 0.6,
             full_bar_pct: 0.8,
+            blink_pct: 0.97,
             blink_at_redline: true,
         }
     }
@@ -51,7 +62,10 @@ impl ShiftLightCurve {
 
         let normalized = (rpm / rpm_max).clamp(0.0, 1.2);
 
-        if normalized >= 1.0 {
+        // The flashing zone can't start before the solid-full one, however
+        // `blink_pct` is configured.
+        let blink_start = self.blink_pct.max(self.full_bar_pct);
+        if normalized >= blink_start {
             return LedBarState {
                 bits: 0x1f,
                 blink: self.blink_at_redline,
@@ -91,6 +105,7 @@ mod tests {
         ShiftLightCurve {
             shift_point_pct: 0.6,
             full_bar_pct: 0.8,
+            blink_pct: 0.97,
             blink_at_redline: true,
         }
     }
@@ -126,5 +141,31 @@ mod tests {
         let s = curve().evaluate(7335.0, 8000.0);
         assert_eq!(s.bits, 0x1f);
         assert!(!s.blink, "full bar below redline should not blink yet");
+    }
+
+    #[test]
+    fn blinks_in_deadzone_before_redline_like_a_limiter() {
+        // 7800/8000 = 97.5%, past blink_pct (97%) but not yet at redline --
+        // should already be flashing, like the wheel is hitting the rev
+        // limiter.
+        let s = curve().evaluate(7800.0, 8000.0);
+        assert_eq!(s.bits, 0x1f);
+        assert!(s.blink);
+    }
+
+    #[test]
+    fn blink_pct_never_starts_before_full_bar_pct() {
+        let curve = ShiftLightCurve {
+            shift_point_pct: 0.6,
+            full_bar_pct: 0.8,
+            blink_pct: 0.5, // misconfigured: below full_bar_pct
+            blink_at_redline: true,
+        };
+        let s = curve.evaluate(6800.0, 8000.0); // 85%, above full_bar_pct
+        assert_eq!(s.bits, 0x1f);
+        assert!(
+            s.blink,
+            "blink zone should still kick in at/after full_bar_pct even if blink_pct is lower"
+        );
     }
 }

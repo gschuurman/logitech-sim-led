@@ -52,6 +52,7 @@ pub async fn serve(
         .route("/", get(index))
         .route("/ws", get(ws_handler))
         .route("/api/test-leds", post(test_leds_handler))
+        .route("/api/setup-info", get(setup_info_handler))
         .route("/api/settings", get(get_settings).post(post_settings))
         .route("/api/quit", post(quit_handler))
         .route("/favicon.png", get(favicon))
@@ -124,6 +125,52 @@ async fn test_leds_handler() -> impl IntoResponse {
     Json(body)
 }
 
+#[derive(Serialize)]
+struct SetupInfo {
+    forza_enabled: bool,
+    /// Just the port from `sources.forza.bind_addr` -- what the setup
+    /// wizard tells the user to type into the game, regardless of which
+    /// interface(s) the service itself binds to.
+    forza_port: u16,
+    /// This machine's LAN IP, if it could be determined -- what to put in
+    /// the game's Data Out IP field when the game runs on a *different*
+    /// PC than the service. `None` when it couldn't be figured out (no
+    /// active network interface), in which case the page falls back to
+    /// telling the user to check it themselves.
+    local_ip: Option<String>,
+}
+
+/// Best-effort local (LAN-facing) IP, for the setup wizard to suggest as
+/// the Data Out IP when the game runs on a different machine than the
+/// service. Uses the "connect a UDP socket, then ask its local address"
+/// trick to get the OS to resolve which interface it would route through
+/// -- `connect()` on a UDP socket only consults the routing table and
+/// never actually sends a packet, so this works offline and needs no
+/// dependency beyond `std`.
+fn detect_local_ip() -> Option<String> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    socket.local_addr().ok().map(|addr| addr.ip().to_string())
+}
+
+async fn setup_info_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let cfg = state.config.read().unwrap();
+    let forza = cfg.sources.forza.clone();
+    drop(cfg);
+
+    let forza_port = forza
+        .as_ref()
+        .and_then(|f| f.bind_addr.rsplit(':').next())
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(5300);
+
+    Json(SetupInfo {
+        forza_enabled: forza.is_some(),
+        forza_port,
+        local_ip: detect_local_ip(),
+    })
+}
+
 /// Same `ShutdownHandle` the GUI's tray "Quit" item and close-button (when
 /// minimize-to-tray is off) use -- see gui.rs, which polls
 /// `shutdown_signal.is_shutdown()` each tick specifically to notice a
@@ -139,6 +186,7 @@ async fn quit_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 struct SettingsView {
     shift_point_pct: f32,
     full_bar_pct: f32,
+    blink_pct: f32,
     blink_at_redline: bool,
     minimize_to_tray_on_close: bool,
 }
@@ -147,6 +195,7 @@ struct SettingsView {
 struct SettingsUpdate {
     shift_point_pct: f32,
     full_bar_pct: f32,
+    blink_pct: f32,
     blink_at_redline: bool,
     minimize_to_tray_on_close: bool,
 }
@@ -157,6 +206,7 @@ async fn get_settings(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     Json(SettingsView {
         shift_point_pct: led.shift_point_pct,
         full_bar_pct: led.full_bar_pct,
+        blink_pct: led.blink_pct,
         blink_at_redline: led.blink_at_redline,
         minimize_to_tray_on_close: cfg.app.minimize_to_tray_on_close,
     })
@@ -172,7 +222,10 @@ async fn post_settings(
     Json(update): Json<SettingsUpdate>,
 ) -> impl IntoResponse {
     let pct_range = 0.0..=1.0;
-    if !pct_range.contains(&update.shift_point_pct) || !pct_range.contains(&update.full_bar_pct) {
+    if !pct_range.contains(&update.shift_point_pct)
+        || !pct_range.contains(&update.full_bar_pct)
+        || !pct_range.contains(&update.blink_pct)
+    {
         return Json(serde_json::json!({
             "ok": false,
             "message": "percentages must be between 0 and 100",
@@ -184,6 +237,12 @@ async fn post_settings(
             "message": "\"fully on\" percentage must be greater than \"start flashing\" percentage",
         }));
     }
+    if update.blink_pct < update.full_bar_pct {
+        return Json(serde_json::json!({
+            "ok": false,
+            "message": "\"limiter flash\" percentage must be at or after \"fully on\" percentage",
+        }));
+    }
 
     {
         let mut cfg = state.config.write().unwrap();
@@ -193,6 +252,7 @@ async fn post_settings(
             .get_or_insert_with(Default::default);
         led.shift_point_pct = update.shift_point_pct;
         led.full_bar_pct = update.full_bar_pct;
+        led.blink_pct = update.blink_pct;
         led.blink_at_redline = update.blink_at_redline;
         cfg.app.minimize_to_tray_on_close = update.minimize_to_tray_on_close;
     }
@@ -201,6 +261,7 @@ async fn post_settings(
         let mut curve = curve.write().unwrap();
         curve.shift_point_pct = update.shift_point_pct;
         curve.full_bar_pct = update.full_bar_pct;
+        curve.blink_pct = update.blink_pct;
         curve.blink_at_redline = update.blink_at_redline;
     }
 

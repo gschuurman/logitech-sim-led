@@ -91,9 +91,14 @@ pub struct LogitechLedConfig {
     #[serde(default = "default_shift_pct")]
     pub shift_point_pct: f32,
     /// Fraction (0.0-1.0) of `rpm_max` at which all 5 LEDs are lit; the
-    /// bar stays solidly full from here up to redline.
+    /// bar stays solidly full from here up to `blink_pct`.
     #[serde(default = "default_full_bar_pct")]
     pub full_bar_pct: f32,
+    /// Fraction (0.0-1.0) of `rpm_max` at which the solid full bar starts
+    /// flashing instead, like a rev limiter -- a deadzone just below
+    /// redline rather than only exactly at/above it.
+    #[serde(default = "default_blink_pct")]
+    pub blink_pct: f32,
     #[serde(default = "default_blink")]
     pub blink_at_redline: bool,
 }
@@ -104,6 +109,7 @@ impl Default for LogitechLedConfig {
             enabled: default_true(),
             shift_point_pct: default_shift_pct(),
             full_bar_pct: default_full_bar_pct(),
+            blink_pct: default_blink_pct(),
             blink_at_redline: default_blink(),
         }
     }
@@ -117,6 +123,9 @@ fn default_shift_pct() -> f32 {
 }
 fn default_full_bar_pct() -> f32 {
     0.8
+}
+fn default_blink_pct() -> f32 {
+    0.97
 }
 fn default_blink() -> bool {
     true

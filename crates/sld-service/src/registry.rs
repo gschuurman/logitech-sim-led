@@ -44,6 +44,7 @@ pub fn build_outputs(cfg: &AppConfig) -> (Vec<Box<dyn OutputDevice>>, LiveOutput
             let curve = ShiftLightCurve {
                 shift_point_pct: led_cfg.shift_point_pct,
                 full_bar_pct: led_cfg.full_bar_pct,
+                blink_pct: led_cfg.blink_pct,
                 blink_at_redline: led_cfg.blink_at_redline,
             };
             let output = LogitechLedOutput::new(curve);
