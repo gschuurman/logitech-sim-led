@@ -41,7 +41,7 @@ tracing-subscriber = { workspace = true }
 axum = { version = "0.7", features = ["ws"], optional = true }
 tray-icon = { version = "0.19", optional = true }
 tao = { version = "0.30", optional = true }
-wry = { version = "0.47", optional = true, default-features = false, features = [
+wry = { version = "0.57", optional = true, default-features = false, features = [
     "os-webview",
 ] }
 rfd = { version = "0.15", optional = true }
